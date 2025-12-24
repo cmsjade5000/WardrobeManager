@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useRoute, useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/mockApi";
+import { api } from "@/lib/api";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -11,8 +11,12 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { ArrowLeft, Trash2, Save } from "lucide-react";
+import { ArrowLeft, Trash2, Save, Check, Upload, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { Badge } from "@/components/ui/badge";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
 import stockImage1 from "@assets/stock_images/stylish_minimalist_c_2ced6162.jpg";
 import stockImage2 from "@assets/stock_images/stylish_minimalist_c_60a9fb76.jpg";
 import stockImage3 from "@assets/stock_images/stylish_minimalist_c_c825e9d4.jpg";
@@ -29,11 +33,12 @@ const itemSchema = z.object({
   type: z.enum(["TOP", "BOTTOM", "OUTERWEAR", "ONE_PIECE", "SHOES", "ACCESSORY"]),
   category: z.string().min(1, "Category is required"),
   color: z.string().min(1, "Color is required"),
-  imageUrl: z.string().url("Must be a valid URL"),
+  imageUrl: z.string().optional(),
   brand: z.string().optional(),
   size: z.string().optional(),
   material: z.string().optional(),
   notes: z.string().optional(),
+  tags: z.array(z.string()).default([]),
 });
 
 type ItemFormValues = z.infer<typeof itemSchema>;
@@ -44,11 +49,19 @@ export default function ItemDetail() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const isNew = params?.id === "new";
+  const [tagOpen, setTagOpen] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   const { data: item, isLoading } = useQuery({
     queryKey: ['item', params?.id],
     queryFn: () => api.items.get(params!.id),
     enabled: !isNew && !!params?.id
+  });
+
+  const { data: tags = [] } = useQuery({
+    queryKey: ['tags'],
+    queryFn: api.tags.list
   });
 
   const form = useForm<ItemFormValues>({
@@ -58,11 +71,12 @@ export default function ItemDetail() {
       type: "TOP",
       category: "",
       color: "",
-      imageUrl: STOCK_IMAGES[0],
+      imageUrl: "",
       brand: "",
       size: "",
       material: "",
       notes: "",
+      tags: [],
     }
   });
 
@@ -79,12 +93,23 @@ export default function ItemDetail() {
         size: item.size || "",
         material: item.material || "",
         notes: item.notes || "",
+        tags: item.tags || [],
       });
     }
   }, [item, form]);
 
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setSelectedFile(file);
+      const url = URL.createObjectURL(file);
+      setPreviewUrl(url);
+      form.setValue("imageUrl", ""); // Clear URL if file selected
+    }
+  };
+
   const createMutation = useMutation({
-    mutationFn: api.items.create,
+    mutationFn: (data: any) => api.items.create(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['items'] });
       toast({ title: "Item added", description: "Your wardrobe has been updated." });
@@ -111,11 +136,13 @@ export default function ItemDetail() {
 
   const onSubmit = (data: ItemFormValues) => {
     if (isNew) {
-      createMutation.mutate({ ...data, tags: [] }); // TODO: Add tag support
+      createMutation.mutate({ ...data, image: selectedFile });
     } else {
       updateMutation.mutate(data);
     }
   };
+
+  const currentTags = form.watch("tags") || [];
 
   if (isLoading) return <div className="p-12 text-center">Loading item...</div>;
 
@@ -128,24 +155,42 @@ export default function ItemDetail() {
       <div className="grid md:grid-cols-2 gap-12">
         {/* Image Section */}
         <div className="space-y-6">
-          <div className="aspect-[3/4] bg-muted rounded-xl overflow-hidden border shadow-sm relative group">
-            <img 
-              src={form.watch("imageUrl")} 
-              alt="Preview" 
-              className="object-cover w-full h-full"
-              onError={(e) => (e.currentTarget.src = "https://via.placeholder.com/400x600?text=No+Image")}
-            />
-            <div className="absolute bottom-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
-              <div className="bg-black/70 text-white text-xs px-2 py-1 rounded backdrop-blur-sm">Preview</div>
-            </div>
+          <div className="aspect-[3/4] bg-muted rounded-xl overflow-hidden border shadow-sm relative group flex items-center justify-center">
+            {(previewUrl || form.watch("imageUrl")) ? (
+              <img 
+                src={previewUrl || form.watch("imageUrl")} 
+                alt="Preview" 
+                className="object-cover w-full h-full"
+                onError={(e) => (e.currentTarget.src = "https://via.placeholder.com/400x600?text=No+Image")}
+              />
+            ) : (
+              <div className="text-center text-muted-foreground p-6">
+                <Upload className="mx-auto h-12 w-12 opacity-50 mb-2" />
+                <p>No image selected</p>
+              </div>
+            )}
           </div>
           
+          <div className="space-y-2">
+            <Label>Upload Image</Label>
+            <Input 
+              type="file" 
+              accept="image/png, image/jpeg, image/webp" 
+              onChange={handleFileChange} 
+            />
+            <p className="text-xs text-muted-foreground">Max 8MB. JPG, PNG, WebP.</p>
+          </div>
+
           <div className="grid grid-cols-4 gap-2">
             {STOCK_IMAGES.map((img, idx) => (
               <button 
                 key={idx}
                 type="button"
-                onClick={() => form.setValue("imageUrl", img)}
+                onClick={() => {
+                  form.setValue("imageUrl", img);
+                  setPreviewUrl(null);
+                  setSelectedFile(null);
+                }}
                 className="aspect-square rounded-md overflow-hidden border-2 border-transparent hover:border-primary focus:border-primary transition-all"
               >
                 <img src={img} className="object-cover w-full h-full" />
@@ -248,12 +293,95 @@ export default function ItemDetail() {
                 />
               </div>
 
+              {/* Tags Field */}
+              <FormField
+                control={form.control}
+                name="tags"
+                render={({ field }) => (
+                  <FormItem className="flex flex-col">
+                    <FormLabel>Tags</FormLabel>
+                    <Popover open={tagOpen} onOpenChange={setTagOpen}>
+                      <PopoverTrigger asChild>
+                        <FormControl>
+                          <Button
+                            variant="outline"
+                            role="combobox"
+                            className={cn(
+                              "w-full justify-between",
+                              !field.value?.length && "text-muted-foreground"
+                            )}
+                          >
+                            {field.value?.length > 0
+                              ? `${field.value.length} tags selected`
+                              : "Select tags"}
+                          </Button>
+                        </FormControl>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[200px] p-0">
+                        <Command>
+                          <CommandInput placeholder="Search tags..." />
+                          <CommandList>
+                            <CommandEmpty>No tag found.</CommandEmpty>
+                            <CommandGroup>
+                              {tags.map((tag: any) => (
+                                <CommandItem
+                                  value={tag.name}
+                                  key={tag.id}
+                                  onSelect={() => {
+                                    const current = field.value || [];
+                                    const updated = current.includes(tag.id)
+                                      ? current.filter((id) => id !== tag.id)
+                                      : [...current, tag.id];
+                                    form.setValue("tags", updated);
+                                  }}
+                                >
+                                  <Check
+                                    className={cn(
+                                      "mr-2 h-4 w-4",
+                                      field.value?.includes(tag.id)
+                                        ? "opacity-100"
+                                        : "opacity-0"
+                                    )}
+                                  />
+                                  {tag.name}
+                                </CommandItem>
+                              ))}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      {field.value?.map((tagId) => {
+                        const tag = tags.find((t: any) => t.id === tagId);
+                        return tag ? (
+                          <Badge key={tag.id} variant="secondary" className="px-2 py-1">
+                            {tag.name}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const updated = field.value.filter(id => id !== tagId);
+                                form.setValue("tags", updated);
+                              }}
+                              className="ml-2 hover:text-destructive"
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </Badge>
+                        ) : null;
+                      })}
+                    </div>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
               <FormField
                 control={form.control}
                 name="imageUrl"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Image URL</FormLabel>
+                    <FormLabel>Image URL (or upload above)</FormLabel>
                     <FormControl>
                       <Input placeholder="https://..." {...field} />
                     </FormControl>

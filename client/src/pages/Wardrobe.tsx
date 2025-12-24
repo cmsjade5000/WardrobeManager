@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { api } from "@/lib/mockApi";
+import { api } from "@/lib/api";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -8,12 +8,14 @@ import { Link } from "wouter";
 import { Plus, Search, Filter } from "lucide-react";
 import { motion } from "framer-motion";
 
+import { Item, Tag } from "@/lib/types";
+
 export default function Wardrobe() {
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("ALL");
   const [tagFilter, setTagFilter] = useState("ALL");
 
-  const { data: items, isLoading } = useQuery({
+  const { data: items, isLoading } = useQuery<Item[]>({
     queryKey: ['items', search, typeFilter, tagFilter],
     queryFn: () => api.items.list({ 
       search: search || undefined, 
@@ -22,7 +24,7 @@ export default function Wardrobe() {
     })
   });
 
-  const { data: tags } = useQuery({
+  const { data: tags } = useQuery<Tag[]>({
     queryKey: ['tags'],
     queryFn: api.tags.list
   });

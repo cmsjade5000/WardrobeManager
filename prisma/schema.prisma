@@ -1,0 +1,68 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model Item {
+  id           String   @id @default(uuid())
+  name         String
+  type         String   // ENUM: TOP, BOTTOM, OUTERWEAR, ONE_PIECE, SHOES, ACCESSORY
+  category     String
+  color        String
+  imageUrl     String
+  notes        String?
+  brand        String?
+  size         String?
+  material     String?
+  pattern      String?
+  season       String?  // JSON string
+  occasionTags String?  // JSON string
+  
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tags         ItemTag[]
+  outfits      OutfitItem[]
+}
+
+model Tag {
+  id    String    @id @default(uuid())
+  name  String    @unique
+  items ItemTag[]
+}
+
+model ItemTag {
+  itemId String
+  tagId  String
+  item   Item @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  tag    Tag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([itemId, tagId])
+}
+
+model Outfit {
+  id        String       @id @default(uuid())
+  name      String
+  notes     String?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  items     OutfitItem[]
+}
+
+model OutfitItem {
+  outfitId String
+  itemId   String
+  position Int
+
+  outfit Outfit @relation(fields: [outfitId], references: [id], onDelete: Cascade)
+  item   Item   @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@id([outfitId, itemId])
+}

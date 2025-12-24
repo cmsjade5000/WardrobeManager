@@ -5,9 +5,10 @@ A private, single-user digital wardrobe application to organize your closet and 
 ## Features
 
 -   **Wardrobe Management**: Add, edit, and categorize your clothing items.
--   **Outfit Builder**: visual drag-and-drop interface to create looks.
+-   **Real Image Uploads**: Upload your own photos (stored locally).
+-   **Outfit Builder**: Visual drag-and-drop interface to create looks.
 -   **Filtering**: Sort by type, category, tag, or color.
--   **Local Persistence**: Your data is saved to your browser's local storage for privacy and speed.
+-   **Full Backend**: Node.js, Express, SQLite, Prisma.
 
 ## How to Run
 
@@ -17,28 +18,19 @@ Or manually:
 ```bash
 npm run dev:client
 ```
+(This runs the full stack server via `tsx server/index.ts`)
 
 ## Tech Stack
 
--   **Frontend**: React, TypeScript, Vite
--   **Styling**: Tailwind CSS (v4), Shadcn UI, Framer Motion
--   **State/Data**: React Query, LocalStorage (Mock API)
+-   **Frontend**: React, TypeScript, Vite, Tailwind CSS, Shadcn UI
+-   **Backend**: Node.js, Express
+-   **Database**: SQLite with Prisma ORM
+-   **Storage**: Local filesystem (`/uploads`)
 
-## Next Steps (Planned Upgrades)
+## API Endpoints
 
-1.  **Wear Tracking (OOTD)**
-    -   Log when you wear an item or outfit.
-    -   Calculate "Cost Per Wear" analytics.
-
-2.  **Smart Features**
-    -   AI Auto-tagging: Automatically detect color and category from uploaded images.
-    -   Duplicate Detection: Warn if you're buying something similar to what you own.
-
-3.  **Calendar Integration**
-    -   Plan outfits for specific dates/events.
-    -   Weather API integration to suggest outfits based on forecast.
-
-4.  **Data & Storage**
-    -   Migrate from LocalStorage to a real backend (PostgreSQL + Prisma).
-    -   Implement S3 for scalable image storage.
-    -   Export/Import CSV/JSON data for backup.
+-   `GET /api/health` - Health check
+-   `GET /api/items` - List items (supports filtering)
+-   `POST /api/items` - Create item (multipart/form-data)
+-   `GET /api/tags` - List tags
+-   `GET /api/outfits` - List outfits

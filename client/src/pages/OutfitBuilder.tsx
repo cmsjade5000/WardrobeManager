@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/mockApi";
+import { api } from "@/lib/api";
 import { Item, OutfitItem } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,7 +17,7 @@ export default function OutfitBuilder() {
   const [selectedItems, setSelectedItems] = useState<Item[]>([]);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
-  const { data: items } = useQuery({ queryKey: ['items'], queryFn: () => api.items.list() });
+  const { data: items } = useQuery<Item[]>({ queryKey: ['items'], queryFn: () => api.items.list() });
 
   const addItem = (item: Item) => {
     if (selectedItems.find(i => i.id === item.id)) {
