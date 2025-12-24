@@ -319,6 +319,41 @@ export async function registerRoutes(
     res.json(formatted);
   });
 
+  // Get single outfit by ID
+  app.get("/api/outfits/:id", async (req, res) => {
+    try {
+      const outfit = await prisma.outfit.findUnique({
+        where: { id: req.params.id },
+        include: {
+          items: {
+            include: { item: true },
+            orderBy: { position: 'asc' }
+          }
+        }
+      });
+      
+      if (!outfit) {
+        return res.status(404).json({ error: "Outfit not found" });
+      }
+      
+      res.json({
+        ...outfit,
+        items: outfit.items.map(oi => ({
+          id: `${oi.outfitId}-${oi.itemId}`,
+          position: oi.position,
+          item: oi.item ? {
+            id: oi.item.id,
+            name: oi.item.name,
+            imageUrl: oi.item.imageUrl,
+            category: oi.item.category
+          } : null
+        }))
+      });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch outfit" });
+    }
+  });
+
   app.post("/api/outfits", async (req, res) => {
     const { name, notes, items } = req.body; // items: { itemId, position }[]
     

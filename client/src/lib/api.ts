@@ -100,11 +100,9 @@ export const api = {
       return res.json();
     },
     get: async (id: string) => {
-      // Assuming list returns all info for now, or implement specific get endpoint
-      const res = await fetch(`/api/outfits`); 
-      if (!res.ok) throw new Error('Failed to fetch outfits');
-      const outfits = await res.json();
-      return outfits.find((o: any) => o.id === id);
+      const res = await fetch(`/api/outfits/${id}`);
+      if (!res.ok) throw new Error('Failed to fetch outfit');
+      return res.json();
     },
     create: async (outfit: Omit<Outfit, 'id' | 'createdAt'>) => {
       const res = await fetch('/api/outfits', {

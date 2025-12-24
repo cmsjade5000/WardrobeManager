@@ -4,9 +4,19 @@
 
 A private, single-user digital wardrobe application for organizing clothing items, uploading photos, and building outfits. Users can add clothing items with images, categorize them by type and custom tags, and compose outfits by selecting and arranging items visually.
 
+## Recent Changes (December 2025)
+
+- **Dark Mode**: Theme toggle in sidebar (desktop) and header (mobile) with system preference detection and persistence
+- **Color Filter**: 14 predefined color options in Wardrobe page filter bar
+- **Outfit Editing**: Full edit capability at /outfit/:id/edit with rename, notes, add/remove items
+- **Tag Management**: Complete CRUD for tags including rename (via dialog) and delete
+- **Image Replacement**: Can replace item images when editing existing items (multipart upload)
+- **Drag-and-Drop Reordering**: dnd-kit powered reordering in Outfit Builder
+
 ## User Preferences
 
 Preferred communication style: Simple, everyday language.
+Design choice: Cool Slate/Steel Blue color palette (hues 215-220) with dark mode variant.
 
 ## System Architecture
 
@@ -18,6 +28,8 @@ Preferred communication style: Simple, everyday language.
 - **Styling**: Tailwind CSS with custom theme configuration
 - **Forms**: React Hook Form with Zod validation
 - **Animations**: Framer Motion for UI transitions
+- **Theming**: next-themes for dark/light mode with system preference detection
+- **Drag-and-Drop**: dnd-kit for sortable item reordering
 
 ### Backend Architecture
 - **Runtime**: Node.js with Express server
