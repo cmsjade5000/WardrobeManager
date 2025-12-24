@@ -6,12 +6,21 @@ A private, single-user digital wardrobe application for organizing clothing item
 
 ## Recent Changes (December 2025)
 
+- **iPhone/Mobile Compatibility**: Full PWA support with installable app experience on iOS
 - **Dark Mode**: Theme toggle in sidebar (desktop) and header (mobile) with system preference detection and persistence
 - **Color Filter**: 14 predefined color options in Wardrobe page filter bar
 - **Outfit Editing**: Full edit capability at /outfit/:id/edit with rename, notes, add/remove items
 - **Tag Management**: Complete CRUD for tags including rename (via dialog) and delete
 - **Image Replacement**: Can replace item images when editing existing items (multipart upload)
 - **Drag-and-Drop Reordering**: dnd-kit powered reordering in Outfit Builder
+
+## Mobile/PWA Features
+
+- **PWA Manifest**: Installable as standalone app from Safari (Add to Home Screen)
+- **iOS Safe Areas**: Proper handling of iPhone notch and home bar
+- **Touch-Friendly**: 44px minimum touch targets, buttons always visible on mobile
+- **Dynamic Viewport**: Uses 100dvh for proper sizing on iOS Safari
+- **Momentum Scrolling**: Native iOS scroll behavior enabled
 
 ## User Preferences
 
