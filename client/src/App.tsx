@@ -7,6 +7,7 @@ import Layout from "@/components/Layout";
 import Wardrobe from "@/pages/Wardrobe";
 import ItemDetail from "@/pages/ItemDetail";
 import OutfitBuilder from "@/pages/OutfitBuilder";
+import Outfits from "@/pages/Outfits";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -14,9 +15,10 @@ function Router() {
     <Layout>
       <Switch>
         <Route path="/" component={Wardrobe} />
+        <Route path="/wardrobe" component={Wardrobe} />
         <Route path="/item/:id" component={ItemDetail} />
-        <Route path="/outfits" component={OutfitBuilder} />
-        {/* Placeholder for Tags page, redirects to Wardrobe for now or shows todo */}
+        <Route path="/outfits" component={Outfits} />
+        <Route path="/outfit-builder" component={OutfitBuilder} />
         <Route path="/tags" component={() => <div className="p-8 text-center text-muted-foreground">Tags Management Coming Soon</div>} />
         <Route component={NotFound} />
       </Switch>

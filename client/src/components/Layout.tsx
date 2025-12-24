@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { Shirt, Layers, Tag, Menu, X } from "lucide-react";
+import { Shirt, Layers, Tag, Menu, X, PlusCircle } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const navItems = [
     { label: "Wardrobe", href: "/", icon: Shirt },
     { label: "Outfits", href: "/outfits", icon: Layers },
+    { label: "Outfit Builder", href: "/outfit-builder", icon: PlusCircle },
     { label: "Tags", href: "/tags", icon: Tag },
   ];
 

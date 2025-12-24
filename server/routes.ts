@@ -254,10 +254,14 @@ export async function registerRoutes(
     const formatted = outfits.map(outfit => ({
       ...outfit,
       items: outfit.items.map(oi => ({
-        itemId: oi.itemId,
+        id: `${oi.outfitId}-${oi.itemId}`,
         position: oi.position,
-        // Include full item details if needed by frontend
-        ...oi.item
+        item: oi.item ? {
+          id: oi.item.id,
+          name: oi.item.name,
+          imageUrl: oi.item.imageUrl,
+          category: oi.item.category
+        } : null
       }))
     }));
     
