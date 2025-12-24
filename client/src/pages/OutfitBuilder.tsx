@@ -81,7 +81,7 @@ function SortableOutfitItem({ item, onRemove }: SortableItemProps) {
         </div>
         <button
           onClick={() => onRemove(item.id)}
-          className="p-2 hover:text-destructive transition-colors opacity-0 group-hover:opacity-100"
+          className="p-2 h-10 w-10 flex items-center justify-center hover:text-destructive transition-colors lg:opacity-0 lg:group-hover:opacity-100"
           data-testid={`button-remove-${item.id}`}
         >
           <X className="h-4 w-4" />
@@ -195,7 +195,7 @@ export default function OutfitBuilder() {
         </p>
       </div>
 
-      <div className="h-[calc(100vh-14rem)] flex flex-col lg:flex-row gap-6 overflow-hidden">
+      <div className="min-h-[60vh] lg:h-[calc(100dvh-14rem)] flex flex-col lg:flex-row gap-6 overflow-hidden">
         {/* Canvas Area */}
         <div className="flex-1 flex flex-col bg-muted/30 rounded-xl border border-border/50 overflow-hidden relative">
           <div className="p-4 border-b bg-background flex justify-between items-center z-10">

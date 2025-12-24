@@ -24,13 +24,13 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-screen bg-background text-foreground font-sans">
       {/* Mobile Header */}
-      <div className="lg:hidden fixed top-0 left-0 right-0 h-16 border-b bg-background/80 backdrop-blur-md z-50 flex items-center justify-between px-4">
-        <h1 className="text-xl font-serif font-semibold tracking-tight">Digital Wardrobe</h1>
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" onClick={toggleTheme} data-testid="button-theme-toggle-mobile">
+      <div className="lg:hidden fixed top-0 left-0 right-0 h-16 border-b bg-background/95 backdrop-blur-md z-50 flex items-center justify-between px-4" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
+        <h1 className="text-xl font-serif font-semibold tracking-tight">Wardrobe</h1>
+        <div className="flex items-center gap-1">
+          <Button variant="ghost" size="icon" className="h-11 w-11" onClick={toggleTheme} data-testid="button-theme-toggle-mobile">
             {theme === "dark" ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
           </Button>
-          <Button variant="ghost" size="icon" onClick={() => setMobileOpen(!mobileOpen)}>
+          <Button variant="ghost" size="icon" className="h-11 w-11" onClick={() => setMobileOpen(!mobileOpen)}>
             {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </Button>
         </div>
@@ -109,7 +109,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 lg:ml-64 pt-20 lg:pt-8 px-4 lg:px-12 pb-12 max-w-7xl mx-auto w-full">
+      <main className="flex-1 lg:ml-64 pt-20 lg:pt-8 px-4 lg:px-12 pb-24 lg:pb-12 max-w-7xl mx-auto w-full">
         {children}
       </main>
     </div>

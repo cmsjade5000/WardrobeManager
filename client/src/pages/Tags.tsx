@@ -125,11 +125,11 @@ export default function Tags() {
                 </div>
                 <span className="font-medium">{tag.name}</span>
               </div>
-              <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              <div className="flex gap-1 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity">
                 <Button 
                   variant="ghost" 
                   size="icon" 
-                  className="h-8 w-8"
+                  className="h-10 w-10"
                   onClick={() => handleEdit(tag)}
                   data-testid={`button-edit-tag-${tag.id}`}
                 >
@@ -138,7 +138,7 @@ export default function Tags() {
                 <Button 
                   variant="ghost" 
                   size="icon" 
-                  className="h-8 w-8 text-destructive hover:text-destructive"
+                  className="h-10 w-10 text-destructive hover:text-destructive"
                   onClick={() => handleDelete(tag)}
                   data-testid={`button-delete-tag-${tag.id}`}
                 >

@@ -155,12 +155,12 @@ export default function Outfits() {
                       <p className="text-sm text-muted-foreground mt-1 line-clamp-2">{outfit.notes}</p>
                     )}
                   </div>
-                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div className="flex gap-1 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity">
                     <Link href={`/outfit/${outfit.id}/edit`}>
                       <Button 
                         variant="ghost" 
                         size="icon"
-                        className="text-muted-foreground hover:text-primary"
+                        className="h-10 w-10 text-muted-foreground hover:text-primary"
                         data-testid={`button-edit-outfit-${outfit.id}`}
                       >
                         <Pencil className="h-4 w-4" />
@@ -169,7 +169,7 @@ export default function Outfits() {
                     <Button 
                       variant="ghost" 
                       size="icon"
-                      className="text-muted-foreground hover:text-destructive"
+                      className="h-10 w-10 text-muted-foreground hover:text-destructive"
                       onClick={() => handleDelete(outfit.id, outfit.name)}
                       data-testid={`button-delete-outfit-${outfit.id}`}
                     >

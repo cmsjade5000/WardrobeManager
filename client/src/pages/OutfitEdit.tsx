@@ -221,11 +221,11 @@ export default function OutfitEdit() {
                         <h4 className="font-medium truncate">{item.name}</h4>
                         <p className="text-sm text-muted-foreground">{item.category}</p>
                       </div>
-                      <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className="flex gap-1 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity">
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-8 w-8"
+                          className="h-10 w-10"
                           onClick={() => moveItem(index, 'up')}
                           disabled={index === 0}
                         >
@@ -234,7 +234,7 @@ export default function OutfitEdit() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-8 w-8"
+                          className="h-10 w-10"
                           onClick={() => moveItem(index, 'down')}
                           disabled={index === selectedItems.length - 1}
                         >
@@ -243,7 +243,7 @@ export default function OutfitEdit() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-8 w-8 text-destructive"
+                          className="h-10 w-10 text-destructive"
                           onClick={() => removeItem(item.id)}
                         >
                           <X className="h-4 w-4" />
