@@ -29,16 +29,16 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         <div className="lg:hidden fixed inset-0 z-40 bg-background pt-20 px-6 space-y-4 animate-in slide-in-from-top-10 fade-in duration-200">
           {navItems.map((item) => (
             <Link key={item.href} href={item.href}>
-              <a 
+              <button
                 onClick={() => setMobileOpen(false)}
                 className={cn(
-                  "flex items-center gap-4 text-2xl font-serif py-4 border-b border-border/40",
+                  "flex items-center gap-4 text-2xl font-serif py-4 border-b border-border/40 w-full text-left",
                   location === item.href ? "text-primary" : "text-muted-foreground"
                 )}
               >
                 <item.icon className="h-6 w-6" />
                 {item.label}
-              </a>
+              </button>
             </Link>
           ))}
         </div>
@@ -54,9 +54,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         <nav className="space-y-2">
           {navItems.map((item) => (
             <Link key={item.href} href={item.href}>
-              <a
+              <button
                 className={cn(
-                  "flex items-center gap-3 px-4 py-3 rounded-md transition-all duration-200 group",
+                  "flex items-center gap-3 px-4 py-3 rounded-md transition-all duration-200 group w-full text-left",
                   location === item.href 
                     ? "bg-primary text-primary-foreground shadow-md" 
                     : "text-muted-foreground hover:bg-secondary hover:text-foreground"
@@ -64,7 +64,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               >
                 <item.icon className={cn("h-4 w-4 transition-transform group-hover:scale-110")} />
                 <span className="font-medium tracking-wide">{item.label}</span>
-              </a>
+              </button>
             </Link>
           ))}
         </nav>
