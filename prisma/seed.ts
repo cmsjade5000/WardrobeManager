@@ -3,7 +3,7 @@ import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
 
 async function main() {
-  // Create some initial tags
+  // Create tags
   const casualTag = await prisma.tag.upsert({
     where: { name: 'Casual' },
     update: {},
@@ -28,8 +28,169 @@ async function main() {
     create: { name: 'Winter' },
   });
 
-  console.log('✅ Seed data created successfully!');
-  console.log(`Created tags: ${casualTag.name}, ${workTag.name}, ${summerTag.name}, ${winterTag.name}`);
+  const formalTag = await prisma.tag.upsert({
+    where: { name: 'Formal' },
+    update: {},
+    create: { name: 'Formal' },
+  });
+
+  const dateNightTag = await prisma.tag.upsert({
+    where: { name: 'Date Night' },
+    update: {},
+    create: { name: 'Date Night' },
+  });
+
+  // Create sample items
+  const items = [
+    {
+      name: 'Classic White Oxford Shirt',
+      type: 'TOP',
+      category: 'Shirt',
+      color: 'White',
+      imageUrl: 'https://images.unsplash.com/photo-1596755094514-f87e34085b2c?w=800&q=80',
+      brand: 'Brooks Brothers',
+      size: 'M',
+      material: 'Cotton',
+      notes: 'Perfect for work or casual wear',
+      tags: [workTag.id, casualTag.id],
+    },
+    {
+      name: 'Navy Blue Blazer',
+      type: 'OUTERWEAR',
+      category: 'Blazer',
+      color: 'Navy',
+      imageUrl: 'https://images.unsplash.com/photo-1507679799987-c73779587ccf?w=800&q=80',
+      brand: 'Hugo Boss',
+      size: 'L',
+      material: 'Wool Blend',
+      notes: 'Great for business meetings',
+      tags: [workTag.id, formalTag.id],
+    },
+    {
+      name: 'Slim Fit Dark Jeans',
+      type: 'BOTTOM',
+      category: 'Jeans',
+      color: 'Dark Blue',
+      imageUrl: 'https://images.unsplash.com/photo-1542272604-787c3835535d?w=800&q=80',
+      brand: "Levi's",
+      size: '32',
+      material: 'Denim',
+      notes: 'Versatile everyday jeans',
+      tags: [casualTag.id],
+    },
+    {
+      name: 'Black Leather Chelsea Boots',
+      type: 'SHOES',
+      category: 'Boots',
+      color: 'Black',
+      imageUrl: 'https://images.unsplash.com/photo-1638247025967-b4e38f787b76?w=800&q=80',
+      brand: 'Cole Haan',
+      size: '10',
+      material: 'Leather',
+      notes: 'Dress up or down',
+      tags: [formalTag.id, dateNightTag.id],
+    },
+    {
+      name: 'Cashmere V-Neck Sweater',
+      type: 'TOP',
+      category: 'Sweater',
+      color: 'Burgundy',
+      imageUrl: 'https://images.unsplash.com/photo-1434389677669-e08b4cac3105?w=800&q=80',
+      brand: 'J.Crew',
+      size: 'M',
+      material: 'Cashmere',
+      notes: 'Luxuriously soft',
+      tags: [winterTag.id, dateNightTag.id],
+    },
+    {
+      name: 'Striped Linen Shirt',
+      type: 'TOP',
+      category: 'Shirt',
+      color: 'Blue/White Stripe',
+      imageUrl: 'https://images.unsplash.com/photo-1598033129183-c4f50c736f10?w=800&q=80',
+      brand: 'Uniqlo',
+      size: 'M',
+      material: 'Linen',
+      notes: 'Perfect for summer',
+      tags: [summerTag.id, casualTag.id],
+    },
+    {
+      name: 'Tailored Chinos',
+      type: 'BOTTOM',
+      category: 'Chinos',
+      color: 'Khaki',
+      imageUrl: 'https://images.unsplash.com/photo-1473966968600-fa801b869a1a?w=800&q=80',
+      brand: 'Bonobos',
+      size: '32',
+      material: 'Cotton Twill',
+      notes: 'Business casual staple',
+      tags: [workTag.id, casualTag.id],
+    },
+    {
+      name: 'Minimalist Leather Watch',
+      type: 'ACCESSORY',
+      category: 'Watch',
+      color: 'Silver/Brown',
+      imageUrl: 'https://images.unsplash.com/photo-1524592094714-0f0654e20314?w=800&q=80',
+      brand: 'Daniel Wellington',
+      size: 'One Size',
+      material: 'Stainless Steel/Leather',
+      notes: 'Goes with everything',
+      tags: [workTag.id, formalTag.id, casualTag.id],
+    },
+  ];
+
+  for (const item of items) {
+    const { tags, ...itemData } = item;
+    
+    // Check if item already exists by name
+    const existing = await prisma.item.findFirst({
+      where: { name: item.name }
+    });
+    
+    if (!existing) {
+      await prisma.item.create({
+        data: {
+          ...itemData,
+          tags: {
+            create: tags.map(tagId => ({
+              tag: { connect: { id: tagId } }
+            }))
+          }
+        }
+      });
+      console.log(`✅ Created: ${item.name}`);
+    } else {
+      console.log(`⏭️  Skipped (exists): ${item.name}`);
+    }
+  }
+
+  // Create a sample outfit
+  const allItems = await prisma.item.findMany({ take: 3 });
+  
+  if (allItems.length >= 3) {
+    const existingOutfit = await prisma.outfit.findFirst({
+      where: { name: 'Business Casual Friday' }
+    });
+    
+    if (!existingOutfit) {
+      await prisma.outfit.create({
+        data: {
+          name: 'Business Casual Friday',
+          notes: 'My go-to outfit for casual Fridays at work',
+          items: {
+            create: allItems.slice(0, 3).map((item, index) => ({
+              position: index,
+              item: { connect: { id: item.id } }
+            }))
+          }
+        }
+      });
+      console.log('✅ Created outfit: Business Casual Friday');
+    }
+  }
+
+  console.log('\n🎉 Seed completed successfully!');
 }
 
 main()

@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Link } from "wouter";
-import { Plus, Search, Filter } from "lucide-react";
+import { Plus, Search, Shirt, Loader2 } from "lucide-react";
 import { motion } from "framer-motion";
 
 import { Item, Tag } from "@/lib/types";
@@ -15,7 +15,7 @@ export default function Wardrobe() {
   const [typeFilter, setTypeFilter] = useState("ALL");
   const [tagFilter, setTagFilter] = useState("ALL");
 
-  const { data: items, isLoading } = useQuery<Item[]>({
+  const { data: items, isLoading, isError } = useQuery<Item[]>({
     queryKey: ['items', search, typeFilter, tagFilter],
     queryFn: () => api.items.list({ 
       search: search || undefined, 
@@ -33,11 +33,11 @@ export default function Wardrobe() {
     <div className="space-y-8">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h2 className="text-3xl font-serif font-bold text-foreground">Wardrobe</h2>
+          <h2 className="text-3xl font-serif font-bold text-foreground" data-testid="page-title">Wardrobe</h2>
           <p className="text-muted-foreground mt-1">Manage your collection.</p>
         </div>
         <Link href="/item/new">
-          <Button className="rounded-full px-6 bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg hover:shadow-xl transition-all">
+          <Button className="rounded-full px-6 bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg hover:shadow-xl transition-all" data-testid="button-add-item">
             <Plus className="mr-2 h-4 w-4" /> Add Item
           </Button>
         </Link>
@@ -52,11 +52,12 @@ export default function Wardrobe() {
             className="pl-9 bg-secondary/30 border-0 focus-visible:ring-1 focus-visible:ring-primary"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
+            data-testid="input-search"
           />
         </div>
         <div className="flex gap-2 w-full md:w-auto overflow-x-auto pb-2 md:pb-0">
           <Select value={typeFilter} onValueChange={setTypeFilter}>
-            <SelectTrigger className="w-[140px] border-0 bg-secondary/30">
+            <SelectTrigger className="w-[140px] border-0 bg-secondary/30" data-testid="select-type">
               <SelectValue placeholder="Type" />
             </SelectTrigger>
             <SelectContent>
@@ -64,13 +65,14 @@ export default function Wardrobe() {
               <SelectItem value="TOP">Tops</SelectItem>
               <SelectItem value="BOTTOM">Bottoms</SelectItem>
               <SelectItem value="OUTERWEAR">Outerwear</SelectItem>
+              <SelectItem value="ONE_PIECE">One Piece</SelectItem>
               <SelectItem value="SHOES">Shoes</SelectItem>
               <SelectItem value="ACCESSORY">Accessories</SelectItem>
             </SelectContent>
           </Select>
 
           <Select value={tagFilter} onValueChange={setTagFilter}>
-            <SelectTrigger className="w-[140px] border-0 bg-secondary/30">
+            <SelectTrigger className="w-[140px] border-0 bg-secondary/30" data-testid="select-tag">
               <SelectValue placeholder="Tag" />
             </SelectTrigger>
             <SelectContent>
@@ -83,26 +85,86 @@ export default function Wardrobe() {
         </div>
       </div>
 
-      {/* Grid */}
-      {isLoading ? (
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-          {[1,2,3,4].map(i => (
-            <div key={i} className="aspect-[3/4] bg-muted animate-pulse rounded-lg" />
-          ))}
+      {/* Loading State */}
+      {isLoading && (
+        <div className="flex flex-col items-center justify-center py-20">
+          <Loader2 className="h-8 w-8 animate-spin text-primary mb-4" />
+          <p className="text-muted-foreground">Loading your wardrobe...</p>
         </div>
-      ) : (
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-          {items?.map((item) => (
+      )}
+
+      {/* Error State */}
+      {isError && (
+        <div className="flex flex-col items-center justify-center py-20 text-center">
+          <div className="w-16 h-16 bg-destructive/10 rounded-full flex items-center justify-center mb-4">
+            <span className="text-2xl">!</span>
+          </div>
+          <p className="text-destructive font-medium">Failed to load items</p>
+          <p className="text-muted-foreground text-sm mt-1">Please try refreshing the page</p>
+        </div>
+      )}
+
+      {/* Empty State */}
+      {!isLoading && !isError && items?.length === 0 && !search && typeFilter === "ALL" && tagFilter === "ALL" && (
+        <div className="flex flex-col items-center justify-center py-20 text-center">
+          <div className="w-24 h-24 bg-primary/10 rounded-full flex items-center justify-center mb-6">
+            <Shirt className="h-12 w-12 text-primary/60" />
+          </div>
+          <h3 className="text-xl font-serif font-semibold mb-2">Your wardrobe is empty</h3>
+          <p className="text-muted-foreground max-w-sm mb-6">
+            Start building your digital closet by adding your first clothing item.
+          </p>
+          <Link href="/item/new">
+            <Button className="rounded-full px-6" data-testid="button-add-first-item">
+              <Plus className="mr-2 h-4 w-4" /> Add Your First Item
+            </Button>
+          </Link>
+        </div>
+      )}
+
+      {/* No Results State */}
+      {!isLoading && !isError && items?.length === 0 && (search || typeFilter !== "ALL" || tagFilter !== "ALL") && (
+        <div className="flex flex-col items-center justify-center py-20 text-center">
+          <div className="w-20 h-20 bg-muted rounded-full flex items-center justify-center mb-4">
+            <Search className="h-8 w-8 text-muted-foreground/50" />
+          </div>
+          <h3 className="text-lg font-medium mb-2">No items found</h3>
+          <p className="text-muted-foreground text-sm">
+            Try adjusting your filters or search term
+          </p>
+          <Button 
+            variant="outline" 
+            className="mt-4"
+            onClick={() => {
+              setSearch("");
+              setTypeFilter("ALL");
+              setTagFilter("ALL");
+            }}
+            data-testid="button-clear-filters"
+          >
+            Clear Filters
+          </Button>
+        </div>
+      )}
+
+      {/* Grid */}
+      {!isLoading && !isError && items && items.length > 0 && (
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6" data-testid="items-grid">
+          {items.map((item) => (
             <Link key={item.id} href={`/item/${item.id}`}>
               <motion.div 
                 whileHover={{ y: -4 }}
                 className="group cursor-pointer"
+                data-testid={`item-card-${item.id}`}
               >
                 <div className="relative aspect-[3/4] rounded-lg overflow-hidden bg-white border border-border/50 shadow-sm transition-shadow group-hover:shadow-md">
                   <img 
                     src={item.imageUrl} 
                     alt={item.name}
                     className="object-cover w-full h-full transition-transform duration-500 group-hover:scale-105"
+                    onError={(e) => {
+                      e.currentTarget.src = "https://via.placeholder.com/400x600?text=No+Image";
+                    }}
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-end p-4">
                     <p className="text-white font-medium truncate">{item.name}</p>
@@ -116,11 +178,6 @@ export default function Wardrobe() {
               </motion.div>
             </Link>
           ))}
-          {items?.length === 0 && (
-            <div className="col-span-full py-20 text-center text-muted-foreground">
-              <p>No items found matching your filters.</p>
-            </div>
-          )}
         </div>
       )}
     </div>
