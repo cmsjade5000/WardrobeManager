@@ -138,7 +138,7 @@ export default function ItemDetail() {
     if (isNew) {
       createMutation.mutate({ ...data, image: selectedFile });
     } else {
-      updateMutation.mutate(data);
+      updateMutation.mutate({ ...data, image: selectedFile || undefined });
     }
   };
 

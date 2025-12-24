@@ -36,11 +36,21 @@ export const api = {
       if (!res.ok) throw new Error('Failed to create item');
       return res.json();
     },
-    update: async (id: string, updates: Partial<Item>) => {
+    update: async (id: string, updates: Partial<Item> & { image?: File }) => {
+      const formData = new FormData();
+      Object.keys(updates).forEach(key => {
+        const value = (updates as any)[key];
+        if (key === 'tags' && Array.isArray(value)) {
+          formData.append('tags', JSON.stringify(value));
+        } else if (key === 'image' && value instanceof File) {
+          formData.append('image', value);
+        } else if (value !== undefined && value !== null) {
+          formData.append(key, String(value));
+        }
+      });
       const res = await fetch(`/api/items/${id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updates),
+        body: formData,
       });
       if (!res.ok) throw new Error('Failed to update item');
       return res.json();

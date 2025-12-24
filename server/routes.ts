@@ -183,30 +183,58 @@ export async function registerRoutes(
     }
   });
 
-  // Update Item
-  app.put("/api/items/:id", async (req, res) => {
-    const { tags, ...data } = req.body;
-    // Note: Multipart update not fully implemented for MVP simplicity unless needed (user said "CRUD for Items with multipart")
-    // Assuming for now simple metadata update. If image update needed, would need multer here too.
-    // Let's rely on creating new items for images for this basic pass or add multipart here if crucial.
-    
+  // Update Item (with multipart support for image replacement)
+  app.put("/api/items/:id", upload.single('image'), async (req, res) => {
     try {
+      const { name, type, category, color, imageUrl, brand, size, material, notes, tags } = req.body;
+      
+      // Handle image: prefer uploaded file, then URL
+      let finalImageUrl = imageUrl;
+      if (req.file) {
+        finalImageUrl = `/uploads/${req.file.filename}`;
+      }
+
+      // Parse tags if provided
+      let tagIds: string[] = [];
+      if (tags) {
+        try {
+          if (tags.startsWith('[')) tagIds = JSON.parse(tags);
+          else tagIds = [tags];
+        } catch {
+          tagIds = [tags];
+        }
+      }
+
+      const updateData: any = {};
+      if (name) updateData.name = name;
+      if (type) updateData.type = type;
+      if (category) updateData.category = category;
+      if (color) updateData.color = color;
+      if (finalImageUrl) updateData.imageUrl = finalImageUrl;
+      if (brand !== undefined) updateData.brand = brand;
+      if (size !== undefined) updateData.size = size;
+      if (material !== undefined) updateData.material = material;
+      if (notes !== undefined) updateData.notes = notes;
+      
+      // Update with tags if provided
+      if (tagIds.length > 0) {
+        updateData.tags = {
+          deleteMany: {},
+          create: tagIds.map((tagId: string) => ({
+            tag: { connect: { id: tagId } }
+          }))
+        };
+      }
+
       const item = await prisma.item.update({
         where: { id: req.params.id },
-        data: {
-            ...data,
-            // Simple tag replacement strategy
-            tags: tags ? {
-                deleteMany: {},
-                create: tags.map((tagId: string) => ({
-                    tag: { connect: { id: tagId } }
-                }))
-            } : undefined
-        },
+        data: updateData,
         include: { tags: { include: { tag: true } } }
       });
+      
       res.json({ ...item, tags: item.tags.map(t => t.tag.id) });
     } catch (error) {
+      console.error("Update item error:", error);
       res.status(500).json({ error: "Failed to update item" });
     }
   });
