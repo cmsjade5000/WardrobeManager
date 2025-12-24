@@ -50,12 +50,13 @@ export async function registerRoutes(
 
   // List Items (with filters)
   app.get("/api/items", async (req, res) => {
-    const { type, category, tag, search, sort } = req.query;
+    const { type, category, tag, search, sort, color } = req.query;
 
     const where: any = {};
 
     if (type && type !== 'ALL') where.type = String(type);
-    if (category) where.category = { contains: String(category) }; // SQLite case-insensitive by default for LIKE? No, depends.
+    if (category) where.category = { contains: String(category) };
+    if (color && color !== 'ALL') where.color = { contains: String(color) };
     if (search) {
       where.OR = [
         { name: { contains: String(search) } },
@@ -237,6 +238,28 @@ export async function registerRoutes(
     }
   });
 
+  app.put("/api/tags/:id", async (req, res) => {
+    try {
+      const { name } = req.body;
+      const tag = await prisma.tag.update({
+        where: { id: req.params.id },
+        data: { name }
+      });
+      res.json(tag);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update tag" });
+    }
+  });
+
+  app.delete("/api/tags/:id", async (req, res) => {
+    try {
+      await prisma.tag.delete({ where: { id: req.params.id } });
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete tag" });
+    }
+  });
+
   // --- Outfits ---
 
   app.get("/api/outfits", async (req, res) => {
@@ -291,6 +314,54 @@ export async function registerRoutes(
     }
   });
   
+  app.put("/api/outfits/:id", async (req, res) => {
+    const { name, notes, items } = req.body;
+    
+    try {
+      // Update outfit metadata
+      const outfit = await prisma.outfit.update({
+        where: { id: req.params.id },
+        data: {
+          name,
+          notes,
+          // If items provided, replace all items
+          ...(items && {
+            items: {
+              deleteMany: {},
+              create: items.map((item: any) => ({
+                position: item.position,
+                item: { connect: { id: item.itemId } }
+              }))
+            }
+          })
+        },
+        include: {
+          items: {
+            include: { item: true },
+            orderBy: { position: 'asc' }
+          }
+        }
+      });
+      
+      res.json({
+        ...outfit,
+        items: outfit.items.map(oi => ({
+          id: `${oi.outfitId}-${oi.itemId}`,
+          position: oi.position,
+          item: oi.item ? {
+            id: oi.item.id,
+            name: oi.item.name,
+            imageUrl: oi.item.imageUrl,
+            category: oi.item.category
+          } : null
+        }))
+      });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "Failed to update outfit" });
+    }
+  });
+
   app.delete("/api/outfits/:id", async (req, res) => {
       try {
           await prisma.outfit.delete({ where: { id: req.params.id }});

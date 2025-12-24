@@ -1,12 +1,18 @@
 import { Link, useLocation } from "wouter";
-import { Shirt, Layers, Tag, Menu, X, PlusCircle } from "lucide-react";
+import { Shirt, Layers, Tag, Menu, X, PlusCircle, Moon, Sun } from "lucide-react";
 import { useState } from "react";
+import { useTheme } from "next-themes";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const { theme, setTheme } = useTheme();
+
+  const toggleTheme = () => {
+    setTheme(theme === "dark" ? "light" : "dark");
+  };
 
   const navItems = [
     { label: "Wardrobe", href: "/", icon: Shirt },
@@ -20,9 +26,14 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       {/* Mobile Header */}
       <div className="lg:hidden fixed top-0 left-0 right-0 h-16 border-b bg-background/80 backdrop-blur-md z-50 flex items-center justify-between px-4">
         <h1 className="text-xl font-serif font-semibold tracking-tight">Digital Wardrobe</h1>
-        <Button variant="ghost" size="icon" onClick={() => setMobileOpen(!mobileOpen)}>
-          {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="icon" onClick={toggleTheme} data-testid="button-theme-toggle-mobile">
+            {theme === "dark" ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+          </Button>
+          <Button variant="ghost" size="icon" onClick={() => setMobileOpen(!mobileOpen)}>
+            {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          </Button>
+        </div>
       </div>
 
       {/* Mobile Nav Overlay */}
@@ -70,7 +81,26 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           ))}
         </nav>
 
-        <div className="mt-auto">
+        <div className="mt-auto space-y-4">
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={toggleTheme}
+            className="w-full justify-start gap-2"
+            data-testid="button-theme-toggle"
+          >
+            {theme === "dark" ? (
+              <>
+                <Sun className="h-4 w-4" />
+                Light Mode
+              </>
+            ) : (
+              <>
+                <Moon className="h-4 w-4" />
+                Dark Mode
+              </>
+            )}
+          </Button>
           <div className="p-4 bg-secondary/50 rounded-lg border border-border/50">
             <h4 className="font-serif text-sm font-semibold mb-1">Pro Tip</h4>
             <p className="text-xs text-muted-foreground">Tag items by season to easily filter your winter coats.</p>

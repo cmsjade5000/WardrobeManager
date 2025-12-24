@@ -8,6 +8,7 @@ export const api = {
         if (filters.search) params.append('search', filters.search);
         if (filters.type && filters.type !== 'ALL') params.append('type', filters.type);
         if (filters.tag && filters.tag !== 'ALL') params.append('tag', filters.tag);
+        if (filters.color && filters.color !== 'ALL') params.append('color', filters.color);
       }
       const res = await fetch(`/api/items?${params.toString()}`);
       if (!res.ok) throw new Error('Failed to fetch items');
@@ -65,6 +66,20 @@ export const api = {
       });
       if (!res.ok) throw new Error('Failed to create tag');
       return res.json();
+    },
+    update: async (id: string, name: string) => {
+      const res = await fetch(`/api/tags/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      });
+      if (!res.ok) throw new Error('Failed to update tag');
+      return res.json();
+    },
+    delete: async (id: string) => {
+      const res = await fetch(`/api/tags/${id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Failed to delete tag');
+      return true;
     }
   },
 
@@ -94,6 +109,15 @@ export const api = {
       const res = await fetch(`/api/outfits/${id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error('Failed to delete outfit');
       return true;
+    },
+    update: async (id: string, outfit: { name?: string; notes?: string; items?: { itemId: string; position: number }[] }) => {
+      const res = await fetch(`/api/outfits/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(outfit),
+      });
+      if (!res.ok) throw new Error('Failed to update outfit');
+      return res.json();
     }
   }
 };

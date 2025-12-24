@@ -10,17 +10,36 @@ import { motion } from "framer-motion";
 
 import { Item, Tag } from "@/lib/types";
 
+const COLORS = [
+  { value: "ALL", label: "All Colors" },
+  { value: "Black", label: "Black" },
+  { value: "White", label: "White" },
+  { value: "Navy", label: "Navy" },
+  { value: "Blue", label: "Blue" },
+  { value: "Gray", label: "Gray" },
+  { value: "Brown", label: "Brown" },
+  { value: "Beige", label: "Beige" },
+  { value: "Green", label: "Green" },
+  { value: "Red", label: "Red" },
+  { value: "Pink", label: "Pink" },
+  { value: "Purple", label: "Purple" },
+  { value: "Orange", label: "Orange" },
+  { value: "Yellow", label: "Yellow" },
+];
+
 export default function Wardrobe() {
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("ALL");
   const [tagFilter, setTagFilter] = useState("ALL");
+  const [colorFilter, setColorFilter] = useState("ALL");
 
   const { data: items, isLoading, isError } = useQuery<Item[]>({
-    queryKey: ['items', search, typeFilter, tagFilter],
+    queryKey: ['items', search, typeFilter, tagFilter, colorFilter],
     queryFn: () => api.items.list({ 
       search: search || undefined, 
       type: typeFilter !== "ALL" ? typeFilter : undefined,
-      tag: tagFilter !== "ALL" ? tagFilter : undefined
+      tag: tagFilter !== "ALL" ? tagFilter : undefined,
+      color: colorFilter !== "ALL" ? colorFilter : undefined
     })
   });
 
@@ -82,6 +101,17 @@ export default function Wardrobe() {
               ))}
             </SelectContent>
           </Select>
+
+          <Select value={colorFilter} onValueChange={setColorFilter}>
+            <SelectTrigger className="w-[140px] border-0 bg-secondary/30" data-testid="select-color">
+              <SelectValue placeholder="Color" />
+            </SelectTrigger>
+            <SelectContent>
+              {COLORS.map(color => (
+                <SelectItem key={color.value} value={color.value}>{color.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       </div>
 
@@ -105,7 +135,7 @@ export default function Wardrobe() {
       )}
 
       {/* Empty State */}
-      {!isLoading && !isError && items?.length === 0 && !search && typeFilter === "ALL" && tagFilter === "ALL" && (
+      {!isLoading && !isError && items?.length === 0 && !search && typeFilter === "ALL" && tagFilter === "ALL" && colorFilter === "ALL" && (
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <div className="w-24 h-24 bg-primary/10 rounded-full flex items-center justify-center mb-6">
             <Shirt className="h-12 w-12 text-primary/60" />
@@ -123,7 +153,7 @@ export default function Wardrobe() {
       )}
 
       {/* No Results State */}
-      {!isLoading && !isError && items?.length === 0 && (search || typeFilter !== "ALL" || tagFilter !== "ALL") && (
+      {!isLoading && !isError && items?.length === 0 && (search || typeFilter !== "ALL" || tagFilter !== "ALL" || colorFilter !== "ALL") && (
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <div className="w-20 h-20 bg-muted rounded-full flex items-center justify-center mb-4">
             <Search className="h-8 w-8 text-muted-foreground/50" />
@@ -139,6 +169,7 @@ export default function Wardrobe() {
               setSearch("");
               setTypeFilter("ALL");
               setTagFilter("ALL");
+              setColorFilter("ALL");
             }}
             data-testid="button-clear-filters"
           >

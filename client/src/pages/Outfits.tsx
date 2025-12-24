@@ -3,7 +3,7 @@ import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Link } from "wouter";
-import { Plus, Trash2, Loader2, Layers } from "lucide-react";
+import { Plus, Trash2, Loader2, Layers, Pencil } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { motion } from "framer-motion";
 
@@ -155,15 +155,27 @@ export default function Outfits() {
                       <p className="text-sm text-muted-foreground mt-1 line-clamp-2">{outfit.notes}</p>
                     )}
                   </div>
-                  <Button 
-                    variant="ghost" 
-                    size="icon"
-                    className="text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
-                    onClick={() => handleDelete(outfit.id, outfit.name)}
-                    data-testid={`button-delete-outfit-${outfit.id}`}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Link href={`/outfit/${outfit.id}/edit`}>
+                      <Button 
+                        variant="ghost" 
+                        size="icon"
+                        className="text-muted-foreground hover:text-primary"
+                        data-testid={`button-edit-outfit-${outfit.id}`}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                    </Link>
+                    <Button 
+                      variant="ghost" 
+                      size="icon"
+                      className="text-muted-foreground hover:text-destructive"
+                      onClick={() => handleDelete(outfit.id, outfit.name)}
+                      data-testid={`button-delete-outfit-${outfit.id}`}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
               </Card>
             </motion.div>
