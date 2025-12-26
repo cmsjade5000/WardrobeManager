@@ -106,11 +106,13 @@ export default function ItemDetail() {
     const file = e.target.files?.[0];
     if (file) {
       const extension = file.name.split(".").pop()?.toLowerCase();
-      const isHeic =
-        file.type === "image/heic" ||
-        file.type === "image/heif" ||
-        extension === "heic" ||
-        extension === "heif";
+      const heicTypes = new Set([
+        "image/heic",
+        "image/heif",
+        "image/heic-sequence",
+        "image/heif-sequence",
+      ]);
+      const isHeic = heicTypes.has(file.type) || extension === "heic" || extension === "heif";
 
       try {
         setIsConverting(isHeic);
@@ -221,7 +223,7 @@ export default function ItemDetail() {
             <Label>Upload Image</Label>
             <Input 
               type="file" 
-              accept="image/png, image/jpeg, image/webp, image/heic, image/heif" 
+              accept="image/png, image/jpeg, image/webp, image/heic, image/heif, image/heic-sequence, image/heif-sequence" 
               onChange={handleFileChange} 
             />
             <p className="text-xs text-muted-foreground">Max 8MB. JPG, PNG, WebP, HEIC.</p>
