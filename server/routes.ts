@@ -4,6 +4,7 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 import { PrismaClient } from "@prisma/client";
+import sharp from "sharp";
 
 export const prisma = new PrismaClient();
 
@@ -32,7 +33,16 @@ const removeBackgroundFromFile = async (filePath: string): Promise<string | null
     const resolvedPath = path.resolve(filePath);
     const { removeBackground } = await loadBackgroundRemoval();
     const publicPath = `file://${path.resolve("node_modules/@imgly/background-removal-node/dist/")}/`;
-    const result = await removeBackground(resolvedPath, {
+    let input: Uint8Array | string = resolvedPath;
+
+    try {
+      // Normalize EXIF orientation so cutouts match the original image rotation.
+      input = await sharp(resolvedPath).rotate().toBuffer();
+    } catch (error) {
+      console.warn("Background removal: failed to normalize orientation", error);
+    }
+
+    const result = await removeBackground(input, {
       publicPath,
       model: BACKGROUND_REMOVAL_MODEL,
       output: { format: "image/png" },
