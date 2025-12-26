@@ -42,21 +42,23 @@ const itemSchema = z.object({
 });
 
 type ItemFormValues = z.infer<typeof itemSchema>;
+type ItemUpdatePayload = Partial<ItemFormValues> & { image?: File };
 
 export default function ItemDetail() {
-  const [match, params] = useRoute("/item/:id");
+  const [_match, params] = useRoute("/item/:id");
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const isNew = params?.id === "new";
+  const itemId = !isNew ? params?.id ?? "" : "";
   const [tagOpen, setTagOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   const { data: item, isLoading } = useQuery({
-    queryKey: ['item', params?.id],
-    queryFn: () => api.items.get(params!.id),
-    enabled: !isNew && !!params?.id
+    queryKey: ['item', itemId],
+    queryFn: () => api.items.get(itemId),
+    enabled: !isNew && Boolean(itemId)
   });
 
   const { data: tags = [] } = useQuery({
@@ -118,7 +120,7 @@ export default function ItemDetail() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: (data: Partial<ItemFormValues>) => api.items.update(params!.id, data),
+    mutationFn: (data: ItemUpdatePayload) => api.items.update(itemId, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['items'] });
       toast({ title: "Item updated", description: "Changes saved successfully." });
@@ -138,11 +140,13 @@ export default function ItemDetail() {
     if (isNew) {
       createMutation.mutate({ ...data, image: selectedFile });
     } else {
+      if (!itemId) {
+        toast({ title: "Unable to update item", description: "Missing item id." });
+        return;
+      }
       updateMutation.mutate({ ...data, image: selectedFile || undefined });
     }
   };
-
-  const currentTags = form.watch("tags") || [];
 
   if (isLoading) return <div className="p-12 text-center">Loading item...</div>;
 
@@ -161,7 +165,9 @@ export default function ItemDetail() {
                 src={previewUrl || form.watch("imageUrl")} 
                 alt="Preview" 
                 className="object-cover w-full h-full"
-                onError={(e) => (e.currentTarget.src = "https://via.placeholder.com/400x600?text=No+Image")}
+                onError={(e) => {
+                  e.currentTarget.src = "https://via.placeholder.com/400x600?text=No+Image"
+                }}
               />
             ) : (
               <div className="text-center text-muted-foreground p-6">
@@ -414,7 +420,11 @@ export default function ItemDetail() {
                     variant="destructive" 
                     onClick={() => {
                       if (confirm("Are you sure you want to delete this item?")) {
-                        deleteMutation.mutate(params!.id);
+                        if (!itemId) {
+                          toast({ title: "Unable to delete item", description: "Missing item id." });
+                          return;
+                        }
+                        deleteMutation.mutate(itemId);
                       }
                     }}
                   >

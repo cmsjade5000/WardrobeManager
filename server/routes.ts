@@ -1,56 +1,122 @@
-import type { Express, Request } from "express";
-import { createServer, type Server } from "http";
+import type { Express, Request, Response } from "express";
+import type { Server } from "http";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
 import { PrismaClient } from "@prisma/client";
 
-const prisma = new PrismaClient();
+export const prisma = new PrismaClient();
+
+type AiRequestBody = {
+  prompt?: string;
+  model?: string;
+  temperature?: number;
+  maxTokens?: number;
+};
+
+type OpenAIChatResponse = {
+  choices?: { message?: { content?: string } }[];
+};
 
 // Multer Configuration
 const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    const uploadDir = 'uploads/';
-    if (!fs.existsSync(uploadDir)){
-        fs.mkdirSync(uploadDir);
+  destination: (_req, _file, cb) => {
+    const uploadDir = "uploads/";
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir);
     }
-    cb(null, uploadDir)
+    cb(null, uploadDir);
   },
-  filename: function (req, file, cb) {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9)
+  filename: (_req, file, cb) => {
+    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
     const ext = path.extname(file.originalname);
-    cb(null, 'item-' + uniqueSuffix + ext)
-  }
+    cb(null, `item-${uniqueSuffix}${ext}`);
+  },
 });
 
-const upload = multer({ 
+const upload = multer({
   storage: storage,
   limits: { fileSize: 8 * 1024 * 1024 }, // 8MB
-  fileFilter: (req, file, cb) => {
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+  fileFilter: (_req, file, cb) => {
+    const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
     if (allowedTypes.includes(file.mimetype)) {
       cb(null, true);
     } else {
-      cb(new Error('Invalid file type. Only JPG, PNG, and WebP are allowed.'));
+      cb(new Error("Invalid file type. Only JPG, PNG, and WebP are allowed."));
     }
-  }
+  },
 });
 
 export async function registerRoutes(
   httpServer: Server,
-  app: Express
+  app: Express,
+  prismaClient: PrismaClient = prisma
 ): Promise<Server> {
 
   // Health Check
-  app.get("/api/health", (req, res) => {
+  app.get("/api/health", (_req, res) => {
     res.json({ status: "ok" });
+  });
+
+  // AI Prompt
+  app.post(
+    "/api/ai",
+    async (
+      req: Request<Record<string, never>, Record<string, never>, AiRequestBody>,
+      res: Response
+    ) => {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ error: "OPENAI_API_KEY is not set" });
+    }
+
+    const prompt = req.body?.prompt?.trim();
+    if (!prompt) {
+      return res.status(400).json({ error: "Prompt is required" });
+    }
+
+    const model = req.body?.model || "gpt-4o-mini";
+    const temperature = typeof req.body?.temperature === "number" ? req.body.temperature : 0.2;
+    const maxTokens = typeof req.body?.maxTokens === "number" ? req.body.maxTokens : 256;
+
+    try {
+      const response = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model,
+          temperature,
+          max_tokens: maxTokens,
+          messages: [{ role: "user", content: prompt }],
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        return res.status(response.status).json({
+          error: "OpenAI request failed",
+          details: errorText,
+        });
+      }
+
+      const data = (await response.json()) as OpenAIChatResponse;
+      const content = data.choices?.[0]?.message?.content ?? "";
+
+      return res.json({ content });
+    } catch (error) {
+      console.error("OpenAI request error:", error);
+      return res.status(500).json({ error: "Failed to reach OpenAI" });
+    }
   });
 
   // --- Items ---
 
   // List Items (with filters)
   app.get("/api/items", async (req, res) => {
-    const { type, category, tag, search, sort, color } = req.query;
+    const { type, category, tag, search, color } = req.query;
 
     const where: any = {};
 
@@ -74,7 +140,7 @@ export async function registerRoutes(
     }
 
     try {
-      const items = await prisma.item.findMany({
+      const items = await prismaClient.item.findMany({
         where,
         include: {
           tags: {
@@ -104,7 +170,7 @@ export async function registerRoutes(
   // Get Item
   app.get("/api/items/:id", async (req, res) => {
     try {
-      const item = await prisma.item.findUnique({
+      const item = await prismaClient.item.findUnique({
         where: { id: req.params.id },
         include: {
           tags: { include: { tag: true } }
@@ -116,7 +182,7 @@ export async function registerRoutes(
         ...item,
         tags: item.tags.map(t => t.tag.id)
       });
-    } catch (error) {
+    } catch (_error) {
       res.status(500).json({ error: "Failed to fetch item" });
     }
   });
@@ -151,7 +217,7 @@ export async function registerRoutes(
         }
       }
 
-      const item = await prisma.item.create({
+      const item = await prismaClient.item.create({
         data: {
           name,
           type,
@@ -226,7 +292,7 @@ export async function registerRoutes(
         };
       }
 
-      const item = await prisma.item.update({
+      const item = await prismaClient.item.update({
         where: { id: req.params.id },
         data: updateData,
         include: { tags: { include: { tag: true } } }
@@ -242,26 +308,26 @@ export async function registerRoutes(
   // Delete Item
   app.delete("/api/items/:id", async (req, res) => {
     try {
-      await prisma.item.delete({ where: { id: req.params.id } });
+      await prismaClient.item.delete({ where: { id: req.params.id } });
       res.json({ success: true });
-    } catch (error) {
+    } catch (_error) {
       res.status(500).json({ error: "Failed to delete item" });
     }
   });
 
   // --- Tags ---
 
-  app.get("/api/tags", async (req, res) => {
-    const tags = await prisma.tag.findMany();
+  app.get("/api/tags", async (_req, res) => {
+    const tags = await prismaClient.tag.findMany();
     res.json(tags);
   });
 
   app.post("/api/tags", async (req, res) => {
     try {
       const { name } = req.body;
-      const tag = await prisma.tag.create({ data: { name } });
+      const tag = await prismaClient.tag.create({ data: { name } });
       res.json(tag);
-    } catch (error) {
+    } catch (_error) {
       res.status(400).json({ error: "Tag likely exists" });
     }
   });
@@ -269,29 +335,29 @@ export async function registerRoutes(
   app.put("/api/tags/:id", async (req, res) => {
     try {
       const { name } = req.body;
-      const tag = await prisma.tag.update({
+      const tag = await prismaClient.tag.update({
         where: { id: req.params.id },
         data: { name }
       });
       res.json(tag);
-    } catch (error) {
+    } catch (_error) {
       res.status(500).json({ error: "Failed to update tag" });
     }
   });
 
   app.delete("/api/tags/:id", async (req, res) => {
     try {
-      await prisma.tag.delete({ where: { id: req.params.id } });
+      await prismaClient.tag.delete({ where: { id: req.params.id } });
       res.json({ success: true });
-    } catch (error) {
+    } catch (_error) {
       res.status(500).json({ error: "Failed to delete tag" });
     }
   });
 
   // --- Outfits ---
 
-  app.get("/api/outfits", async (req, res) => {
-    const outfits = await prisma.outfit.findMany({
+  app.get("/api/outfits", async (_req, res) => {
+    const outfits = await prismaClient.outfit.findMany({
       include: {
         items: {
           include: { item: true },
@@ -322,7 +388,7 @@ export async function registerRoutes(
   // Get single outfit by ID
   app.get("/api/outfits/:id", async (req, res) => {
     try {
-      const outfit = await prisma.outfit.findUnique({
+      const outfit = await prismaClient.outfit.findUnique({
         where: { id: req.params.id },
         include: {
           items: {
@@ -349,7 +415,7 @@ export async function registerRoutes(
           } : null
         }))
       });
-    } catch (error) {
+    } catch (_error) {
       res.status(500).json({ error: "Failed to fetch outfit" });
     }
   });
@@ -358,7 +424,7 @@ export async function registerRoutes(
     const { name, notes, items } = req.body; // items: { itemId, position }[]
     
     try {
-      const outfit = await prisma.outfit.create({
+      const outfit = await prismaClient.outfit.create({
         data: {
           name,
           notes,
@@ -382,7 +448,7 @@ export async function registerRoutes(
     
     try {
       // Update outfit metadata
-      const outfit = await prisma.outfit.update({
+      const outfit = await prismaClient.outfit.update({
         where: { id: req.params.id },
         data: {
           name,
@@ -427,9 +493,9 @@ export async function registerRoutes(
 
   app.delete("/api/outfits/:id", async (req, res) => {
       try {
-          await prisma.outfit.delete({ where: { id: req.params.id }});
+          await prismaClient.outfit.delete({ where: { id: req.params.id }});
           res.json({ success: true });
-      } catch (error) {
+      } catch (_error) {
           res.status(500).json({ error: "Failed to delete outfit"});
       }
   });

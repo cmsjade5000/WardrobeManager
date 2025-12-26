@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Link } from "wouter";
 import { Plus, Search, Shirt, Loader2 } from "lucide-react";
@@ -32,6 +33,9 @@ export default function Wardrobe() {
   const [typeFilter, setTypeFilter] = useState("ALL");
   const [tagFilter, setTagFilter] = useState("ALL");
   const [colorFilter, setColorFilter] = useState("ALL");
+  const [aiPrompt, setAiPrompt] = useState("");
+  const [aiResponse, setAiResponse] = useState("");
+  const [aiError, setAiError] = useState("");
 
   const { data: items, isLoading, isError } = useQuery<Item[]>({
     queryKey: ['items', search, typeFilter, tagFilter, colorFilter],
@@ -47,6 +51,29 @@ export default function Wardrobe() {
     queryKey: ['tags'],
     queryFn: api.tags.list
   });
+
+  const aiMutation = useMutation({
+    mutationFn: (prompt: string) => api.ai.prompt(prompt),
+    onSuccess: (data: { content?: string }) => {
+      setAiResponse(data.content || "No response returned.");
+      setAiError("");
+    },
+    onError: (error) => {
+      const message = error instanceof Error ? error.message : "Failed to generate response.";
+      setAiError(message);
+    },
+  });
+
+  const handleAiSubmit = () => {
+    const trimmedPrompt = aiPrompt.trim();
+    if (!trimmedPrompt) {
+      setAiError("Please enter a prompt.");
+      return;
+    }
+    setAiResponse("");
+    setAiError("");
+    aiMutation.mutate(trimmedPrompt);
+  };
 
   return (
     <div className="space-y-8">
@@ -113,6 +140,45 @@ export default function Wardrobe() {
             </SelectContent>
           </Select>
         </div>
+      </div>
+
+      {/* AI Helper */}
+      <div className="bg-card p-6 rounded-xl border shadow-sm space-y-4">
+        <div>
+          <h3 className="text-xl font-serif font-semibold text-foreground">AI Outfit Helper</h3>
+          <p className="text-sm text-muted-foreground mt-1">
+            Ask for outfit ideas, styling tips, or gaps to fill based on your wardrobe.
+          </p>
+        </div>
+        <Textarea
+          placeholder="Try: Suggest 3 outfits using neutral colors and one statement accessory."
+          className="min-h-[120px] bg-secondary/30 border-0 focus-visible:ring-1 focus-visible:ring-primary"
+          value={aiPrompt}
+          onChange={(e) => setAiPrompt(e.target.value)}
+        />
+        <div className="flex items-center gap-3">
+          <Button
+            onClick={handleAiSubmit}
+            disabled={aiMutation.isPending || !aiPrompt.trim()}
+            className="rounded-full px-6"
+          >
+            {aiMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Get Suggestions
+          </Button>
+          <span className="text-xs text-muted-foreground">
+            Uses your OpenAI key on the server.
+          </span>
+        </div>
+        {aiError && (
+          <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+            {aiError}
+          </div>
+        )}
+        {aiResponse && (
+          <div className="rounded-lg border bg-secondary/30 p-4 text-sm text-foreground whitespace-pre-wrap">
+            {aiResponse}
+          </div>
+        )}
       </div>
 
       {/* Loading State */}

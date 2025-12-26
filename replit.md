@@ -47,22 +47,21 @@ Design choice: Cool Slate/Steel Blue color palette (hues 215-220) with dark mode
 - **Static Files**: Uploaded images served from `/uploads` directory
 
 ### Data Storage
-- **Primary Database**: PostgreSQL using Drizzle ORM for schema definition and queries
-- **Secondary ORM**: Prisma Client is also present (used for seed data and some operations)
-- **Schema Location**: `shared/schema.ts` contains Drizzle table definitions
-- **Migrations**: Drizzle Kit manages database migrations in `/migrations` directory
+- **Primary Database**: SQLite using Prisma Client for schema definition and queries
+- **Schema Location**: `prisma/schema.prisma` is the source of truth
+- **Local Data**: SQLite file lives at `prisma/dev.db` by default
+- **Migrations**: Prisma migrations live in `prisma/migrations/` when created
 
 ### Key Design Patterns
-- **Shared Types**: Common types and schemas in `shared/` directory accessible by both client and server
+- **Shared Types**: Common types and Zod schemas in `shared/` for client/server payloads
 - **API Client**: Centralized API functions in `client/src/lib/api.ts` for all HTTP operations
 - **Component Structure**: UI components in `client/src/components/ui/`, pages in `client/src/pages/`
 
 ## External Dependencies
 
 ### Database
-- PostgreSQL database (requires `DATABASE_URL` environment variable)
-- Drizzle ORM for type-safe database operations
-- Prisma Client for additional database operations
+- SQLite database (file-backed, no `DATABASE_URL` required by default)
+- Prisma Client for type-safe database operations
 
 ### File Storage
 - Local filesystem storage in `/uploads` directory for uploaded images

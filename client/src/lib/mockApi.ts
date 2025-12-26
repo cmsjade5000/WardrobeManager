@@ -14,7 +14,7 @@ const getFromStorage = <T>(key: string, initial: T): T => {
   if (!stored) return initial;
   try {
     return JSON.parse(stored);
-  } catch (e) {
+  } catch (_e) {
     return initial;
   }
 };

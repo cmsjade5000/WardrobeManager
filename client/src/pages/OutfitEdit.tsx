@@ -31,19 +31,20 @@ interface Outfit {
 }
 
 export default function OutfitEdit() {
-  const [match, params] = useRoute("/outfit/:id/edit");
+  const [_match, params] = useRoute("/outfit/:id/edit");
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const outfitId = params?.id ?? "";
   
   const [outfitName, setOutfitName] = useState("");
   const [outfitNotes, setOutfitNotes] = useState("");
   const [selectedItems, setSelectedItems] = useState<Item[]>([]);
 
   const { data: outfit, isLoading: outfitLoading } = useQuery<Outfit>({
-    queryKey: ['outfit', params?.id],
-    queryFn: () => api.outfits.get(params!.id),
-    enabled: !!params?.id
+    queryKey: ['outfit', outfitId],
+    queryFn: () => api.outfits.get(outfitId),
+    enabled: Boolean(outfitId)
   });
 
   const { data: allItems, isLoading: itemsLoading } = useQuery<Item[]>({
@@ -60,7 +61,7 @@ export default function OutfitEdit() {
       const items = outfit.items
         .filter(oi => oi.item)
         .sort((a, b) => a.position - b.position)
-        .map(oi => allItems.find(item => item.id === oi.item!.id))
+        .map(oi => allItems.find(item => item.id === oi.item?.id))
         .filter((item): item is Item => !!item);
       setSelectedItems(items);
     }
@@ -90,11 +91,11 @@ export default function OutfitEdit() {
 
   const updateMutation = useMutation({
     mutationFn: (data: { name: string; notes: string; items: { itemId: string; position: number }[] }) =>
-      api.outfits.update(params!.id, data),
+      api.outfits.update(outfitId, data),
     onSuccess: () => {
       toast({ title: "Outfit updated", description: "Changes saved successfully." });
       queryClient.invalidateQueries({ queryKey: ['outfits'] });
-      queryClient.invalidateQueries({ queryKey: ['outfit', params?.id] });
+      queryClient.invalidateQueries({ queryKey: ['outfit', outfitId] });
       setLocation('/outfits');
     },
     onError: () => {
@@ -103,7 +104,7 @@ export default function OutfitEdit() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: () => api.outfits.delete(params!.id),
+    mutationFn: () => api.outfits.delete(outfitId),
     onSuccess: () => {
       toast({ title: "Outfit deleted" });
       queryClient.invalidateQueries({ queryKey: ['outfits'] });
@@ -112,6 +113,10 @@ export default function OutfitEdit() {
   });
 
   const handleSave = () => {
+    if (!outfitId) {
+      toast({ title: "Missing outfit id", variant: "destructive" });
+      return;
+    }
     if (!outfitName) {
       toast({ title: "Name required", variant: "destructive" });
       return;
@@ -132,6 +137,10 @@ export default function OutfitEdit() {
   };
 
   const handleDelete = () => {
+    if (!outfitId) {
+      toast({ title: "Missing outfit id", variant: "destructive" });
+      return;
+    }
     if (confirm("Are you sure you want to delete this outfit?")) {
       deleteMutation.mutate();
     }

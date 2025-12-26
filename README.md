@@ -98,7 +98,7 @@ The app will start at `http://0.0.0.0:5000`
 ├── prisma/              # Database schema and migrations
 │   └── schema.prisma
 ├── uploads/             # User-uploaded images (served statically)
-└── shared/              # Shared types between frontend/backend
+└── shared/              # Shared schemas/types (Zod)
 ```
 
 ## 🔌 API Endpoints
@@ -116,6 +116,7 @@ The app will start at `http://0.0.0.0:5000`
 | `GET` | `/api/outfits` | List all outfits |
 | `POST` | `/api/outfits` | Create outfit |
 | `DELETE` | `/api/outfits/:id` | Delete outfit |
+| `POST` | `/api/ai` | Generate AI response from prompt |
 
 ## 🎨 Design Philosophy
 
