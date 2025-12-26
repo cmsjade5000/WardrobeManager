@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { ArrowLeft, Trash2, Save, Check, Upload, X } from "lucide-react";
+import { ArrowLeft, Trash2, Save, Check, Upload, X, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
@@ -21,6 +21,7 @@ import stockImage1 from "@assets/stock_images/stylish_minimalist_c_2ced6162.jpg"
 import stockImage2 from "@assets/stock_images/stylish_minimalist_c_60a9fb76.jpg";
 import stockImage3 from "@assets/stock_images/stylish_minimalist_c_c825e9d4.jpg";
 import stockImage4 from "@assets/stock_images/stylish_minimalist_c_bef19a57.jpg";
+import heic2any from "heic2any";
 
 const STOCK_IMAGES = [
   stockImage1, stockImage2, stockImage3, stockImage4,
@@ -54,6 +55,7 @@ export default function ItemDetail() {
   const [tagOpen, setTagOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [isConverting, setIsConverting] = useState(false);
 
   const { data: item, isLoading } = useQuery({
     queryKey: ['item', itemId],
@@ -100,13 +102,51 @@ export default function ItemDetail() {
     }
   }, [item, form]);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      setSelectedFile(file);
-      const url = URL.createObjectURL(file);
-      setPreviewUrl(url);
-      form.setValue("imageUrl", ""); // Clear URL if file selected
+      const extension = file.name.split(".").pop()?.toLowerCase();
+      const isHeic =
+        file.type === "image/heic" ||
+        file.type === "image/heif" ||
+        extension === "heic" ||
+        extension === "heif";
+
+      try {
+        setIsConverting(isHeic);
+        const normalizedFile = isHeic
+          ? await (async () => {
+              const converted = await heic2any({
+                blob: file,
+                toType: "image/jpeg",
+                quality: 0.9,
+              });
+              const blob = Array.isArray(converted) ? converted[0] : converted;
+              const filename = file.name.replace(/\.(heic|heif)$/i, ".jpg");
+              return new File([blob], filename, { type: "image/jpeg" });
+            })()
+          : file;
+
+        if (previewUrl) {
+          URL.revokeObjectURL(previewUrl);
+        }
+        setSelectedFile(normalizedFile);
+        const url = URL.createObjectURL(normalizedFile);
+        setPreviewUrl(url);
+        form.setValue("imageUrl", ""); // Clear URL if file selected
+        if (isHeic) {
+          toast({ title: "HEIC converted", description: "Uploaded as JPEG for processing." });
+        }
+      } catch (error) {
+        console.error("HEIC conversion failed:", error);
+        toast({
+          title: "Image conversion failed",
+          description: "Please export as JPG, PNG, or WebP and try again.",
+          variant: "destructive",
+        });
+      } finally {
+        setIsConverting(false);
+      }
     }
   };
 
@@ -181,10 +221,16 @@ export default function ItemDetail() {
             <Label>Upload Image</Label>
             <Input 
               type="file" 
-              accept="image/png, image/jpeg, image/webp" 
+              accept="image/png, image/jpeg, image/webp, image/heic, image/heif" 
               onChange={handleFileChange} 
             />
-            <p className="text-xs text-muted-foreground">Max 8MB. JPG, PNG, WebP.</p>
+            <p className="text-xs text-muted-foreground">Max 8MB. JPG, PNG, WebP, HEIC.</p>
+            {isConverting && (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Converting HEIC to JPEG...
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-4 gap-2">
