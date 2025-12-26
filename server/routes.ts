@@ -13,6 +13,10 @@ const BACKGROUND_REMOVAL_MODEL =
   process.env.BG_REMOVAL_MODEL === "medium" || process.env.BG_REMOVAL_MODEL === "large"
     ? process.env.BG_REMOVAL_MODEL
     : "small";
+const STANDARD_CANVAS_WIDTH = Number.parseInt(process.env.IMAGE_CANVAS_WIDTH ?? "", 10) || 900;
+const STANDARD_CANVAS_HEIGHT = Number.parseInt(process.env.IMAGE_CANVAS_HEIGHT ?? "", 10) || 1200;
+const STANDARD_BRIGHTNESS = Number.parseFloat(process.env.IMAGE_BRIGHTNESS ?? "") || 1.03;
+const STANDARD_SATURATION = Number.parseFloat(process.env.IMAGE_SATURATION ?? "") || 1.05;
 
 type BackgroundRemovalModule = typeof import("@imgly/background-removal-node");
 let backgroundRemovalModule: BackgroundRemovalModule | null = null;
@@ -58,6 +62,56 @@ const removeBackgroundFromFile = async (filePath: string): Promise<string | null
   } catch (error) {
     console.error("Background removal failed:", error);
     return null;
+  }
+};
+
+type StandardizeOptions = {
+  trimTransparent?: boolean;
+};
+
+const resolveUploadPath = (imageUrl: string): string => {
+  return path.resolve(imageUrl.replace(/^\//, ""));
+};
+
+const standardizeImage = async (
+  filePath: string,
+  { trimTransparent }: StandardizeOptions = {}
+): Promise<string> => {
+  const resolvedPath = path.resolve(filePath);
+  const { dir, name } = path.parse(resolvedPath);
+  const outputFilename = `${name}-standard.png`;
+  const outputPath = path.join(dir, outputFilename);
+
+  let pipeline = sharp(resolvedPath).rotate();
+  if (trimTransparent) {
+    pipeline = pipeline.trim();
+  }
+
+  const standardizedBuffer = await pipeline
+    .modulate({ brightness: STANDARD_BRIGHTNESS, saturation: STANDARD_SATURATION })
+    .resize(STANDARD_CANVAS_WIDTH, STANDARD_CANVAS_HEIGHT, {
+      fit: "contain",
+      position: "center",
+      background: { r: 255, g: 255, b: 255, alpha: 0 },
+    })
+    .png()
+    .toBuffer();
+
+  await fs.promises.writeFile(outputPath, standardizedBuffer);
+  return `/uploads/${outputFilename}`;
+};
+
+const processUploadedImage = async (filePath: string): Promise<string> => {
+  const originalUrl = `/uploads/${path.basename(filePath)}`;
+  const cutoutUrl = await removeBackgroundFromFile(filePath);
+  const sourceUrl = cutoutUrl || originalUrl;
+  const sourcePath = cutoutUrl ? resolveUploadPath(cutoutUrl) : filePath;
+
+  try {
+    return await standardizeImage(sourcePath, { trimTransparent: Boolean(cutoutUrl) });
+  } catch (error) {
+    console.error("Image standardization failed:", error);
+    return sourceUrl;
   }
 };
 
@@ -252,8 +306,7 @@ export async function registerRoutes(
       let imageUrl = req.body.imageUrl;
 
       if (req.file) {
-        imageUrl =
-          (await removeBackgroundFromFile(req.file.path)) || `/uploads/${req.file.filename}`;
+        imageUrl = await processUploadedImage(req.file.path);
       }
 
       // Parse tags (might come as stringified JSON array or individual fields depending on how frontend sends it)
@@ -312,8 +365,7 @@ export async function registerRoutes(
       // Handle image: prefer uploaded file, then URL
       let finalImageUrl = imageUrl;
       if (req.file) {
-        finalImageUrl =
-          (await removeBackgroundFromFile(req.file.path)) || `/uploads/${req.file.filename}`;
+        finalImageUrl = await processUploadedImage(req.file.path);
       }
 
       // Parse tags if provided
