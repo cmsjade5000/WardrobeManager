@@ -36,8 +36,8 @@ const removeBackgroundFromFile = async (filePath: string): Promise<string | null
     let input: Uint8Array | string = resolvedPath;
 
     try {
-      // Normalize EXIF orientation so cutouts match the original image rotation.
-      input = await sharp(resolvedPath).rotate().toBuffer();
+      // Normalize EXIF orientation and transcode to PNG for consistent decoding.
+      input = await sharp(resolvedPath).rotate().png().toBuffer();
     } catch (error) {
       console.warn("Background removal: failed to normalize orientation", error);
     }
