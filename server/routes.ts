@@ -7,6 +7,49 @@ import { PrismaClient } from "@prisma/client";
 
 export const prisma = new PrismaClient();
 
+const BACKGROUND_REMOVAL_ENABLED = process.env.BG_REMOVAL_ENABLED !== "false";
+const BACKGROUND_REMOVAL_MODEL =
+  process.env.BG_REMOVAL_MODEL === "medium" || process.env.BG_REMOVAL_MODEL === "large"
+    ? process.env.BG_REMOVAL_MODEL
+    : "small";
+
+type BackgroundRemovalModule = typeof import("@imgly/background-removal-node");
+let backgroundRemovalModule: BackgroundRemovalModule | null = null;
+
+const loadBackgroundRemoval = async (): Promise<BackgroundRemovalModule> => {
+  if (!backgroundRemovalModule) {
+    backgroundRemovalModule = await import("@imgly/background-removal-node");
+  }
+  return backgroundRemovalModule;
+};
+
+const removeBackgroundFromFile = async (filePath: string): Promise<string | null> => {
+  if (!BACKGROUND_REMOVAL_ENABLED) {
+    return null;
+  }
+
+  try {
+    const resolvedPath = path.resolve(filePath);
+    const { removeBackground } = await loadBackgroundRemoval();
+    const publicPath = `file://${path.resolve("node_modules/@imgly/background-removal-node/dist/")}/`;
+    const result = await removeBackground(resolvedPath, {
+      publicPath,
+      model: BACKGROUND_REMOVAL_MODEL,
+      output: { format: "image/png" },
+    });
+    const buffer = Buffer.from(await result.arrayBuffer());
+    const { dir, name } = path.parse(resolvedPath);
+    const outputFilename = `${name}-cutout.png`;
+    const outputPath = path.join(dir, outputFilename);
+
+    await fs.promises.writeFile(outputPath, buffer);
+    return `/uploads/${outputFilename}`;
+  } catch (error) {
+    console.error("Background removal failed:", error);
+    return null;
+  }
+};
+
 type AiRequestBody = {
   prompt?: string;
   model?: string;
@@ -198,7 +241,8 @@ export async function registerRoutes(
       let imageUrl = req.body.imageUrl;
 
       if (req.file) {
-        imageUrl = `/uploads/${req.file.filename}`;
+        imageUrl =
+          (await removeBackgroundFromFile(req.file.path)) || `/uploads/${req.file.filename}`;
       }
 
       // Parse tags (might come as stringified JSON array or individual fields depending on how frontend sends it)
@@ -257,7 +301,8 @@ export async function registerRoutes(
       // Handle image: prefer uploaded file, then URL
       let finalImageUrl = imageUrl;
       if (req.file) {
-        finalImageUrl = `/uploads/${req.file.filename}`;
+        finalImageUrl =
+          (await removeBackgroundFromFile(req.file.path)) || `/uploads/${req.file.filename}`;
       }
 
       // Parse tags if provided

@@ -5,6 +5,7 @@ A private, single-user digital wardrobe application to organize your closet, upl
 ## ✨ Features
 
 - **📸 Real Image Uploads**: Upload photos directly from your device (JPG, PNG, WebP, max 8MB)
+- **🖼️ Background Removal**: Automatically removes image backgrounds on upload for cleaner cards
 - **👕 Wardrobe Management**: Add, edit, categorize, and delete clothing items
 - **🏷️ Smart Tagging**: Create custom tags and filter items (Casual, Work, Summer, etc.)
 - **👗 Outfit Builder**: Visually compose outfits by adding items and reordering them

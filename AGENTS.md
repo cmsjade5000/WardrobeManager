@@ -28,6 +28,9 @@
 
 ## Configuration & Secrets
 - Set `OPENAI_API_KEY` in your environment (see `.env.example`) to enable `/api/ai`.
+- `BG_REMOVAL_ENABLED` controls background removal for uploaded images (`true` by default).
+- `BG_REMOVAL_MODEL` can be `small`, `medium`, or `large` to trade speed vs. quality.
+- The first background removal run downloads model assets unless you host them locally.
 - Never commit real API keys; use `.env` files locally or host-provided secrets.
 
 ## Commit & Pull Request Guidelines
