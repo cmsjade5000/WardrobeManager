@@ -3,7 +3,12 @@ import type { Server } from "http";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
-import { PrismaClient, type ImportJob as PrismaImportJob, type ImportJobItem as PrismaImportJobItem } from "@prisma/client";
+import {
+  Prisma,
+  PrismaClient,
+  type ImportJob as PrismaImportJob,
+  type ImportJobItem as PrismaImportJobItem,
+} from "@prisma/client";
 import { z } from "zod";
 import sharp from "sharp";
 import { createHash, randomUUID } from "crypto";
@@ -120,6 +125,10 @@ const sendValidationError = (res: Response, error: z.ZodError) => {
     error: "Validation failed",
     details: error.flatten().fieldErrors,
   });
+};
+
+const isNotFoundError = (error: unknown): boolean => {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025";
 };
 
 type BackgroundRemovalModule = typeof import("@imgly/background-removal-node");
@@ -904,6 +913,9 @@ export async function registerRoutes(
       
       res.json({ ...item, tags: item.tags.map(t => t.tag.id) });
     } catch (error) {
+      if (isNotFoundError(error)) {
+        return res.status(404).json({ error: "Item not found" });
+      }
       console.error("Update item error:", error);
       res.status(500).json({ error: "Failed to update item" });
     }
@@ -914,7 +926,10 @@ export async function registerRoutes(
     try {
       await prismaClient.item.delete({ where: { id: req.params.id } });
       res.json({ success: true });
-    } catch (_error) {
+    } catch (error) {
+      if (isNotFoundError(error)) {
+        return res.status(404).json({ error: "Item not found" });
+      }
       res.status(500).json({ error: "Failed to delete item" });
     }
   });
@@ -1263,7 +1278,10 @@ export async function registerRoutes(
         data: { name }
       });
       res.json(tag);
-    } catch (_error) {
+    } catch (error) {
+      if (isNotFoundError(error)) {
+        return res.status(404).json({ error: "Tag not found" });
+      }
       res.status(500).json({ error: "Failed to update tag" });
     }
   });
@@ -1272,7 +1290,10 @@ export async function registerRoutes(
     try {
       await prismaClient.tag.delete({ where: { id: req.params.id } });
       res.json({ success: true });
-    } catch (_error) {
+    } catch (error) {
+      if (isNotFoundError(error)) {
+        return res.status(404).json({ error: "Tag not found" });
+      }
       res.status(500).json({ error: "Failed to delete tag" });
     }
   });
@@ -1417,6 +1438,9 @@ export async function registerRoutes(
         }))
       });
     } catch (error) {
+      if (isNotFoundError(error)) {
+        return res.status(404).json({ error: "Outfit not found" });
+      }
       console.error(error);
       res.status(500).json({ error: "Failed to update outfit" });
     }
@@ -1426,7 +1450,10 @@ export async function registerRoutes(
       try {
           await prismaClient.outfit.delete({ where: { id: req.params.id }});
           res.json({ success: true });
-      } catch (_error) {
+      } catch (error) {
+          if (isNotFoundError(error)) {
+            return res.status(404).json({ error: "Outfit not found" });
+          }
           res.status(500).json({ error: "Failed to delete outfit"});
       }
   });

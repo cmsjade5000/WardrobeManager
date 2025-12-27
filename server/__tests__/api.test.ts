@@ -158,6 +158,32 @@ describe("API routes", () => {
     await request(app).delete(`/api/tags/${tagRes.body.id}`);
   });
 
+  it("returns 404s for missing records", async () => {
+    const missingId = "00000000-0000-0000-0000-000000000000";
+
+    const missingItemUpdate = await request(app)
+      .put(`/api/items/${missingId}`)
+      .field("name", "Missing");
+    expect(missingItemUpdate.status).toBe(404);
+
+    const missingItemDelete = await request(app).delete(`/api/items/${missingId}`);
+    expect(missingItemDelete.status).toBe(404);
+
+    const missingTagUpdate = await request(app).put(`/api/tags/${missingId}`).send({ name: "Missing" });
+    expect(missingTagUpdate.status).toBe(404);
+
+    const missingTagDelete = await request(app).delete(`/api/tags/${missingId}`);
+    expect(missingTagDelete.status).toBe(404);
+
+    const missingOutfitUpdate = await request(app)
+      .put(`/api/outfits/${missingId}`)
+      .send({ name: "Missing" });
+    expect(missingOutfitUpdate.status).toBe(404);
+
+    const missingOutfitDelete = await request(app).delete(`/api/outfits/${missingId}`);
+    expect(missingOutfitDelete.status).toBe(404);
+  });
+
   it("processes bulk imports", async () => {
     const tmpDir = path.resolve("uploads", `import-test-${Date.now()}`);
     fs.mkdirSync(tmpDir, { recursive: true });
