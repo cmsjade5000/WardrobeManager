@@ -130,9 +130,6 @@ export const api = {
       if (payload.tags?.length) {
         formData.append("tags", JSON.stringify(payload.tags));
       }
-      if (payload.tags?.length) {
-        formData.append("tags", JSON.stringify(payload.tags));
-      }
 
       const res = await fetch("/api/imports", {
         method: "POST",
