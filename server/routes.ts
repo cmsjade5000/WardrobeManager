@@ -17,6 +17,8 @@ const STANDARD_CANVAS_WIDTH = Number.parseInt(process.env.IMAGE_CANVAS_WIDTH ?? 
 const STANDARD_CANVAS_HEIGHT = Number.parseInt(process.env.IMAGE_CANVAS_HEIGHT ?? "", 10) || 1200;
 const STANDARD_BRIGHTNESS = Number.parseFloat(process.env.IMAGE_BRIGHTNESS ?? "") || 1.03;
 const STANDARD_SATURATION = Number.parseFloat(process.env.IMAGE_SATURATION ?? "") || 1.05;
+const STANDARD_BG_TOP = process.env.IMAGE_BACKGROUND_TOP || "#f2f4f7";
+const STANDARD_BG_BOTTOM = process.env.IMAGE_BACKGROUND_BOTTOM || "#dfe5ec";
 
 type BackgroundRemovalModule = typeof import("@imgly/background-removal-node");
 let backgroundRemovalModule: BackgroundRemovalModule | null = null;
@@ -97,7 +99,27 @@ const standardizeImage = async (
     .png()
     .toBuffer();
 
-  await fs.promises.writeFile(outputPath, standardizedBuffer);
+  const gradientSvg = `
+    <svg width="${STANDARD_CANVAS_WIDTH}" height="${STANDARD_CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="${STANDARD_BG_TOP}" />
+          <stop offset="100%" stop-color="${STANDARD_BG_BOTTOM}" />
+        </linearGradient>
+      </defs>
+      <rect width="100%" height="100%" fill="url(#bg)" />
+    </svg>
+  `;
+
+  const backgroundBuffer = await sharp(Buffer.from(gradientSvg))
+    .png()
+    .toBuffer();
+  const compositedBuffer = await sharp(backgroundBuffer)
+    .composite([{ input: standardizedBuffer }])
+    .png()
+    .toBuffer();
+
+  await fs.promises.writeFile(outputPath, compositedBuffer);
   return `/uploads/${outputFilename}`;
 };
 
