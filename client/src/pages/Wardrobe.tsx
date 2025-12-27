@@ -52,6 +52,11 @@ export default function Wardrobe() {
   const [bulkJobId, setBulkJobId] = useState<string | null>(null);
   const [bulkNotified, setBulkNotified] = useState(false);
   const [bulkConverting, setBulkConverting] = useState(false);
+  const [bulkBrand, setBulkBrand] = useState("");
+  const [bulkSize, setBulkSize] = useState("");
+  const [bulkMaterial, setBulkMaterial] = useState("");
+  const [bulkNotes, setBulkNotes] = useState("");
+  const [bulkTagInput, setBulkTagInput] = useState("");
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [zipFile, setZipFile] = useState<File | null>(null);
 
@@ -97,6 +102,11 @@ export default function Wardrobe() {
       type: string;
       category: string;
       color: string;
+      brand?: string;
+      size?: string;
+      material?: string;
+      notes?: string;
+      tags?: string[];
     }) => api.imports.create(payload),
     onSuccess: handleImportStarted,
     onError: (error) => {
@@ -106,7 +116,18 @@ export default function Wardrobe() {
   });
 
   const csvImportMutation = useMutation({
-    mutationFn: (payload: { csv: File; zip: File; type?: string; category?: string; color?: string }) =>
+    mutationFn: (payload: {
+      csv: File;
+      zip: File;
+      type?: string;
+      category?: string;
+      color?: string;
+      brand?: string;
+      size?: string;
+      material?: string;
+      notes?: string;
+      tags?: string[];
+    }) =>
       api.imports.createCsv(payload),
     onSuccess: handleImportStarted,
     onError: (error) => {
@@ -188,6 +209,11 @@ export default function Wardrobe() {
     }
   };
 
+  const bulkTags = bulkTagInput
+    .split(",")
+    .map((tag) => tag.trim())
+    .filter(Boolean);
+
   const handleBulkImport = () => {
     if (!bulkFiles.length) {
       toast({ title: "Select images", description: "Add at least one image to import." });
@@ -207,6 +233,11 @@ export default function Wardrobe() {
       type: bulkType,
       category: bulkCategory.trim(),
       color: bulkColor.trim(),
+      brand: bulkBrand.trim() || undefined,
+      size: bulkSize.trim() || undefined,
+      material: bulkMaterial.trim() || undefined,
+      notes: bulkNotes.trim() || undefined,
+      tags: bulkTags.length ? bulkTags : undefined,
     });
   };
 
@@ -226,8 +257,77 @@ export default function Wardrobe() {
       type: bulkType || undefined,
       category: bulkCategory.trim() || undefined,
       color: bulkColor.trim() || undefined,
+      brand: bulkBrand.trim() || undefined,
+      size: bulkSize.trim() || undefined,
+      material: bulkMaterial.trim() || undefined,
+      notes: bulkNotes.trim() || undefined,
+      tags: bulkTags.length ? bulkTags : undefined,
     });
   };
+
+  const renderDefaultFields = () => (
+    <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-2">
+        <Label>Type</Label>
+        <Select value={bulkType} onValueChange={setBulkType}>
+          <SelectTrigger>
+            <SelectValue placeholder="Type" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="TOP">Top</SelectItem>
+            <SelectItem value="BOTTOM">Bottom</SelectItem>
+            <SelectItem value="OUTERWEAR">Outerwear</SelectItem>
+            <SelectItem value="ONE_PIECE">One Piece</SelectItem>
+            <SelectItem value="SHOES">Shoes</SelectItem>
+            <SelectItem value="ACCESSORY">Accessory</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="grid gap-2">
+        <Label>Category</Label>
+        <Input value={bulkCategory} onChange={(e) => setBulkCategory(e.target.value)} />
+      </div>
+      <div className="grid gap-2">
+        <Label>Color</Label>
+        <Select value={bulkColor} onValueChange={setBulkColor}>
+          <SelectTrigger>
+            <SelectValue placeholder="Color" />
+          </SelectTrigger>
+          <SelectContent>
+            {COLORS.filter((color) => color.value !== "ALL").map((color) => (
+              <SelectItem key={color.value} value={color.value}>
+                {color.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="grid gap-2">
+        <Label>Brand</Label>
+        <Input value={bulkBrand} onChange={(e) => setBulkBrand(e.target.value)} />
+      </div>
+      <div className="grid gap-2">
+        <Label>Size</Label>
+        <Input value={bulkSize} onChange={(e) => setBulkSize(e.target.value)} />
+      </div>
+      <div className="grid gap-2">
+        <Label>Material</Label>
+        <Input value={bulkMaterial} onChange={(e) => setBulkMaterial(e.target.value)} />
+      </div>
+      <div className="grid gap-2 sm:col-span-3">
+        <Label>Tags</Label>
+        <Input
+          placeholder="e.g. Casual, Work, Summer"
+          value={bulkTagInput}
+          onChange={(e) => setBulkTagInput(e.target.value)}
+        />
+      </div>
+      <div className="grid gap-2 sm:col-span-3">
+        <Label>Notes</Label>
+        <Input value={bulkNotes} onChange={(e) => setBulkNotes(e.target.value)} />
+      </div>
+    </div>
+  );
 
   const handleAiSubmit = () => {
     const trimmedPrompt = aiPrompt.trim();
@@ -314,43 +414,7 @@ export default function Wardrobe() {
                       </div>
                     )}
                   </div>
-                  <div className="grid gap-4 sm:grid-cols-3">
-                    <div className="grid gap-2">
-                      <Label>Type</Label>
-                      <Select value={bulkType} onValueChange={setBulkType}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Type" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="TOP">Top</SelectItem>
-                          <SelectItem value="BOTTOM">Bottom</SelectItem>
-                          <SelectItem value="OUTERWEAR">Outerwear</SelectItem>
-                          <SelectItem value="ONE_PIECE">One Piece</SelectItem>
-                          <SelectItem value="SHOES">Shoes</SelectItem>
-                          <SelectItem value="ACCESSORY">Accessory</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="grid gap-2">
-                      <Label>Category</Label>
-                      <Input value={bulkCategory} onChange={(e) => setBulkCategory(e.target.value)} />
-                    </div>
-                    <div className="grid gap-2">
-                      <Label>Color</Label>
-                      <Select value={bulkColor} onValueChange={setBulkColor}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Color" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {COLORS.filter((color) => color.value !== "ALL").map((color) => (
-                            <SelectItem key={color.value} value={color.value}>
-                              {color.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
+                  {renderDefaultFields()}
                   <div className="flex flex-col sm:flex-row gap-3 sm:justify-end">
                     <Button
                       variant="outline"
@@ -409,43 +473,7 @@ export default function Wardrobe() {
                     CSV columns: filename, name, type, category, color, brand, size, material, notes, tags
                     (comma-separated).
                   </div>
-                  <div className="grid gap-4 sm:grid-cols-3">
-                    <div className="grid gap-2">
-                      <Label>Default type</Label>
-                      <Select value={bulkType} onValueChange={setBulkType}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Type" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="TOP">Top</SelectItem>
-                          <SelectItem value="BOTTOM">Bottom</SelectItem>
-                          <SelectItem value="OUTERWEAR">Outerwear</SelectItem>
-                          <SelectItem value="ONE_PIECE">One Piece</SelectItem>
-                          <SelectItem value="SHOES">Shoes</SelectItem>
-                          <SelectItem value="ACCESSORY">Accessory</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="grid gap-2">
-                      <Label>Default category</Label>
-                      <Input value={bulkCategory} onChange={(e) => setBulkCategory(e.target.value)} />
-                    </div>
-                    <div className="grid gap-2">
-                      <Label>Default color</Label>
-                      <Select value={bulkColor} onValueChange={setBulkColor}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Color" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {COLORS.filter((color) => color.value !== "ALL").map((color) => (
-                            <SelectItem key={color.value} value={color.value}>
-                              {color.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
+                  {renderDefaultFields()}
                   <div className="flex flex-col sm:flex-row gap-3 sm:justify-end">
                     <Button
                       variant="outline"

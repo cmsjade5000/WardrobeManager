@@ -130,6 +130,9 @@ export const api = {
       if (payload.tags?.length) {
         formData.append("tags", JSON.stringify(payload.tags));
       }
+      if (payload.tags?.length) {
+        formData.append("tags", JSON.stringify(payload.tags));
+      }
 
       const res = await fetch("/api/imports", {
         method: "POST",
@@ -144,6 +147,11 @@ export const api = {
       type?: string;
       category?: string;
       color?: string;
+      brand?: string;
+      size?: string;
+      material?: string;
+      notes?: string;
+      tags?: string[];
     }) => {
       const formData = new FormData();
       formData.append("csv", payload.csv);
@@ -151,6 +159,13 @@ export const api = {
       if (payload.type) formData.append("type", payload.type);
       if (payload.category) formData.append("category", payload.category);
       if (payload.color) formData.append("color", payload.color);
+      if (payload.brand) formData.append("brand", payload.brand);
+      if (payload.size) formData.append("size", payload.size);
+      if (payload.material) formData.append("material", payload.material);
+      if (payload.notes) formData.append("notes", payload.notes);
+      if (payload.tags?.length) {
+        formData.append("tags", JSON.stringify(payload.tags));
+      }
 
       const res = await fetch("/api/imports/csv", {
         method: "POST",

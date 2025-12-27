@@ -167,6 +167,12 @@ describe("API routes", () => {
     expect(job.completed + job.failed).toBe(job.total);
     expect(job.items.length).toBe(2);
 
+    const itemsRes = await request(app).get("/api/items?search=import-one");
+    expect(itemsRes.status).toBe(200);
+    const importedItem = itemsRes.body.find((item: any) => item.name === "import-one");
+    expect(importedItem).toBeTruthy();
+    expect(importedItem.color).toBe("Red");
+
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
@@ -237,6 +243,13 @@ describe("API routes", () => {
     expect(job.status).toBe("completed");
     expect(job.completed + job.failed).toBe(job.total);
     expect(job.items.length).toBe(2);
+
+    const itemsRes = await request(app).get("/api/items?search=CSV%20Pants");
+    expect(itemsRes.status).toBe(200);
+    const csvItem = itemsRes.body.find((item: any) => item.name === "CSV Pants");
+    expect(csvItem).toBeTruthy();
+    expect(csvItem.type).toBe("BOTTOM");
+    expect(csvItem.category).toBe("Pants");
 
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
