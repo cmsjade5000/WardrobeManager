@@ -330,6 +330,13 @@ export async function registerRoutes(
   app: Express,
   prismaClient: PrismaClient = prisma
 ): Promise<Server> {
+  const prismaWithImports = prismaClient as PrismaClient & {
+    importJob?: typeof prismaClient.importJob;
+    importJobItem?: typeof prismaClient.importJobItem;
+  };
+  const importJobClient = prismaWithImports.importJob;
+  const importJobItemClient = prismaWithImports.importJobItem;
+  const importsEnabled = Boolean(importJobClient && importJobItemClient);
   type ImportItemStatus = "queued" | "processing" | "completed" | "failed";
   type ImportItemPayload = {
     name: string;
@@ -446,7 +453,11 @@ export async function registerRoutes(
   };
 
   const processImportJob = async (jobId: string) => {
-    const claimed = await prismaClient.importJob.updateMany({
+    if (!importsEnabled || !importJobClient || !importJobItemClient) {
+      return;
+    }
+
+    const claimed = await importJobClient.updateMany({
       where: { id: jobId, status: "queued" },
       data: { status: "processing" },
     });
@@ -454,7 +465,7 @@ export async function registerRoutes(
       return;
     }
 
-    const job = await prismaClient.importJob.findUnique({
+    const job = await importJobClient.findUnique({
       where: { id: jobId },
       include: { items: true },
     });
@@ -476,11 +487,11 @@ export async function registerRoutes(
 
       if (!item.filePath) {
         failed += 1;
-        await prismaClient.importJobItem.update({
+        await importJobItemClient.update({
           where: { id: item.id },
           data: { status: "failed", error: "Missing file for import." },
         });
-        await prismaClient.importJob.update({
+        await importJobClient.update({
           where: { id: jobId },
           data: { failed },
         });
@@ -490,18 +501,18 @@ export async function registerRoutes(
       const payload = parseJson<ImportItemPayload | null>(item.payloadJson, null);
       if (!payload) {
         failed += 1;
-        await prismaClient.importJobItem.update({
+        await importJobItemClient.update({
           where: { id: item.id },
           data: { status: "failed", error: "Invalid import payload." },
         });
-        await prismaClient.importJob.update({
+        await importJobClient.update({
           where: { id: jobId },
           data: { failed },
         });
         continue;
       }
 
-      await prismaClient.importJobItem.update({
+      await importJobItemClient.update({
         where: { id: item.id },
         data: { status: "processing" },
       });
@@ -519,11 +530,11 @@ export async function registerRoutes(
 
         if (imageHash && seenHashes.has(imageHash)) {
           failed += 1;
-          await prismaClient.importJobItem.update({
+          await importJobItemClient.update({
             where: { id: item.id },
             data: { status: "failed", error: "Duplicate image detected." },
           });
-          await prismaClient.importJob.update({
+          await importJobClient.update({
             where: { id: jobId },
             data: { failed },
           });
@@ -553,7 +564,7 @@ export async function registerRoutes(
         });
 
         completed += 1;
-        await prismaClient.importJobItem.update({
+        await importJobItemClient.update({
           where: { id: item.id },
           data: {
             status: "completed",
@@ -561,7 +572,7 @@ export async function registerRoutes(
             imageUrl,
           },
         });
-        await prismaClient.importJob.update({
+        await importJobClient.update({
           where: { id: jobId },
           data: { completed },
         });
@@ -571,21 +582,21 @@ export async function registerRoutes(
         }
       } catch (error) {
         failed += 1;
-        await prismaClient.importJobItem.update({
+        await importJobItemClient.update({
           where: { id: item.id },
           data: {
             status: "failed",
             error: error instanceof Error ? error.message : "Unknown error",
           },
         });
-        await prismaClient.importJob.update({
+        await importJobClient.update({
           where: { id: jobId },
           data: { failed },
         });
       }
     }
 
-    await prismaClient.importJob.update({
+    await importJobClient.update({
       where: { id: jobId },
       data: { status: "completed", completed, failed },
     });
@@ -612,13 +623,18 @@ export async function registerRoutes(
   };
 
   const restoreImportQueue = async () => {
-    const jobs = await prismaClient.importJob.findMany({
+    if (!importsEnabled || !importJobClient) {
+      console.warn("Import jobs unavailable. Run prisma generate/migrate to enable imports.");
+      return;
+    }
+
+    const jobs = await importJobClient.findMany({
       where: { status: { in: ["queued", "processing"] } },
       select: { id: true, status: true },
     });
     for (const job of jobs) {
       if (job.status === "processing") {
-        await prismaClient.importJob.update({
+        await importJobClient.update({
           where: { id: job.id },
           data: { status: "queued" },
         });
@@ -946,6 +962,12 @@ export async function registerRoutes(
 
   app.post("/api/imports", upload.array("images", 25), async (req, res) => {
     try {
+      if (!importsEnabled || !importJobClient) {
+        return res.status(503).json({
+          error: "Import jobs unavailable",
+          details: ["Run prisma generate/migrate to enable imports."],
+        });
+      }
       const files = Array.isArray(req.files) ? req.files : [];
       const { tags } = req.body;
 
@@ -1007,7 +1029,7 @@ export async function registerRoutes(
       });
 
       const hasPending = itemsData.some((item) => item.status === "queued");
-      const job = await prismaClient.importJob.create({
+      const job = await importJobClient.create({
         data: {
           id: randomUUID(),
           status: hasPending ? "queued" : "completed",
@@ -1040,6 +1062,12 @@ export async function registerRoutes(
       { name: "zip", maxCount: 1 },
     ]),
     async (req, res) => {
+      if (!importsEnabled || !importJobClient) {
+        return res.status(503).json({
+          error: "Import jobs unavailable",
+          details: ["Run prisma generate/migrate to enable imports."],
+        });
+      }
       const fileMap = req.files as Record<string, Express.Multer.File[]>;
       const csvFile = fileMap?.csv?.[0];
       const zipFile = fileMap?.zip?.[0];
@@ -1212,7 +1240,7 @@ export async function registerRoutes(
         }
 
         const hasPending = itemsData.some((item) => item.status === "queued");
-        const job = await prismaClient.importJob.create({
+        const job = await importJobClient.create({
           data: {
             id: jobId,
             status: hasPending ? "queued" : "completed",
@@ -1243,7 +1271,13 @@ export async function registerRoutes(
   );
 
   app.get("/api/imports/:id", async (req, res) => {
-    const job = await prismaClient.importJob.findUnique({
+    if (!importsEnabled || !importJobClient) {
+      return res.status(503).json({
+        error: "Import jobs unavailable",
+        details: ["Run prisma generate/migrate to enable imports."],
+      });
+    }
+    const job = await importJobClient.findUnique({
       where: { id: req.params.id },
       include: { items: true },
     });
