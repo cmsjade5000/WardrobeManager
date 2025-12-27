@@ -16,6 +16,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
 import stockImage1 from "@assets/stock_images/stylish_minimalist_c_2ced6162.jpg";
 import stockImage2 from "@assets/stock_images/stylish_minimalist_c_60a9fb76.jpg";
@@ -200,6 +201,7 @@ export default function ItemDetail() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isConverting, setIsConverting] = useState(false);
+  const [imageError, setImageError] = useState("");
 
   const { data: item, isLoading } = useQuery({
     queryKey: ['item', itemId],
@@ -249,6 +251,7 @@ export default function ItemDetail() {
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      setImageError("");
       const extension = file.name.split(".").pop()?.toLowerCase();
       const heicTypes = new Set([
         "image/heic",
@@ -296,6 +299,7 @@ export default function ItemDetail() {
         }
       } catch (error) {
         console.error("HEIC conversion failed:", error);
+        setImageError("Image processing failed. Background removal may not run for this file.");
         toast({
           title: "Image conversion failed",
           description: "Please export as JPG, PNG, or WebP and try again.",
@@ -312,6 +316,7 @@ export default function ItemDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['items'] });
       toast({ title: "Item added", description: "Your wardrobe has been updated." });
+      setImageError("");
       setLocation("/");
     },
     onError: (error) => {
@@ -338,6 +343,7 @@ export default function ItemDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['items'] });
       toast({ title: "Item updated", description: "Changes saved successfully." });
+      setImageError("");
     },
     onError: (error) => {
       const fieldErrors = getApiErrorFieldErrors(error);
@@ -406,6 +412,7 @@ export default function ItemDetail() {
                 className="object-cover w-full h-full"
                 onError={(e) => {
                   e.currentTarget.src = "https://via.placeholder.com/400x600?text=No+Image"
+                  setImageError("Image preview failed to load. Background removal may have failed or the URL is invalid.");
                 }}
               />
             ) : (
@@ -430,6 +437,12 @@ export default function ItemDetail() {
                 Converting HEIC to JPEG...
               </div>
             )}
+            {imageError && (
+              <Alert variant="destructive">
+                <AlertTitle>Image issue</AlertTitle>
+                <AlertDescription>{imageError}</AlertDescription>
+              </Alert>
+            )}
           </div>
 
           <div className="grid grid-cols-4 gap-2">
@@ -441,6 +454,7 @@ export default function ItemDetail() {
                   form.setValue("imageUrl", img);
                   setPreviewUrl(null);
                   setSelectedFile(null);
+                  setImageError("");
                 }}
                 className="aspect-square rounded-md overflow-hidden border-2 border-transparent hover:border-primary focus:border-primary transition-all"
               >
@@ -634,7 +648,16 @@ export default function ItemDetail() {
                   <FormItem>
                     <FormLabel>Image URL (or upload above)</FormLabel>
                     <FormControl>
-                      <Input placeholder="https://..." {...field} />
+                      <Input
+                        placeholder="https://..."
+                        {...field}
+                        onChange={(event) => {
+                          field.onChange(event);
+                          if (imageError) {
+                            setImageError("");
+                          }
+                        }}
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

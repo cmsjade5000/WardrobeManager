@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Link } from "wouter";
 import { Plus, Search, Shirt, Loader2, Upload, Check, X } from "lucide-react";
 import { motion } from "framer-motion";
@@ -51,6 +52,8 @@ export default function Wardrobe() {
   const [bulkColor, setBulkColor] = useState("Unknown");
   const [bulkJobId, setBulkJobId] = useState<string | null>(null);
   const [bulkNotified, setBulkNotified] = useState(false);
+  const [bulkImportError, setBulkImportError] = useState("");
+  const [csvImportError, setCsvImportError] = useState("");
   const [bulkConverting, setBulkConverting] = useState(false);
   const [bulkBrand, setBulkBrand] = useState("");
   const [bulkSize, setBulkSize] = useState("");
@@ -91,6 +94,8 @@ export default function Wardrobe() {
   const handleImportStarted = (data: ImportJob) => {
     setBulkJobId(data.id);
     setBulkNotified(false);
+    setBulkImportError("");
+    setCsvImportError("");
     toast({
       title: "Import started",
       description: `Processing ${data.total} items.`,
@@ -112,8 +117,10 @@ export default function Wardrobe() {
     onSuccess: handleImportStarted,
     onError: (error) => {
       const details = getApiErrorDetailMessages(error);
+      const message = getApiErrorMessage(error, "Import failed");
+      setBulkImportError(details.length ? `${message} ${details.join(" • ")}` : message);
       toast({
-        title: getApiErrorMessage(error, "Import failed"),
+        title: message,
         description: details.length ? details.join(" • ") : "Please try again.",
         variant: "destructive",
       });
@@ -137,8 +144,10 @@ export default function Wardrobe() {
     onSuccess: handleImportStarted,
     onError: (error) => {
       const details = getApiErrorDetailMessages(error);
+      const message = getApiErrorMessage(error, "CSV import failed");
+      setCsvImportError(details.length ? `${message} ${details.join(" • ")}` : message);
       toast({
-        title: getApiErrorMessage(error, "CSV import failed"),
+        title: message,
         description: details.length ? details.join(" • ") : "Please try again.",
         variant: "destructive",
       });
@@ -169,6 +178,7 @@ export default function Wardrobe() {
     if (!selected.length) {
       return;
     }
+    setBulkImportError("");
 
     const heicTypes = new Set([
       "image/heic",
@@ -224,6 +234,7 @@ export default function Wardrobe() {
     .filter(Boolean);
 
   const handleBulkImport = () => {
+    setBulkImportError("");
     if (!bulkFiles.length) {
       toast({ title: "Select images", description: "Add at least one image to import." });
       return;
@@ -251,6 +262,7 @@ export default function Wardrobe() {
   };
 
   const handleCsvImport = () => {
+    setCsvImportError("");
     if (!csvFile || !zipFile) {
       toast({
         title: "Add CSV and ZIP",
@@ -441,7 +453,11 @@ export default function Wardrobe() {
                   <div className="flex flex-col sm:flex-row gap-3 sm:justify-end">
                     <Button
                       variant="outline"
-                      onClick={() => setBulkOpen(false)}
+                      onClick={() => {
+                        setBulkOpen(false);
+                        setBulkImportError("");
+                        setCsvImportError("");
+                      }}
                       disabled={bulkImportMutation.isPending}
                     >
                       Close
@@ -460,6 +476,12 @@ export default function Wardrobe() {
                       Start Import
                     </Button>
                   </div>
+                  {bulkImportError && (
+                    <Alert variant="destructive">
+                      <AlertTitle>Import failed</AlertTitle>
+                      <AlertDescription>{bulkImportError}</AlertDescription>
+                    </Alert>
+                  )}
                 </div>
               </TabsContent>
               <TabsContent value="csv" className="mt-4">
@@ -509,7 +531,11 @@ export default function Wardrobe() {
                   <div className="flex flex-col sm:flex-row gap-3 sm:justify-end">
                     <Button
                       variant="outline"
-                      onClick={() => setBulkOpen(false)}
+                      onClick={() => {
+                        setBulkOpen(false);
+                        setBulkImportError("");
+                        setCsvImportError("");
+                      }}
                       disabled={csvImportMutation.isPending}
                     >
                       Close
@@ -522,6 +548,12 @@ export default function Wardrobe() {
                       Start CSV Import
                     </Button>
                   </div>
+                  {csvImportError && (
+                    <Alert variant="destructive">
+                      <AlertTitle>CSV import failed</AlertTitle>
+                      <AlertDescription>{csvImportError}</AlertDescription>
+                    </Alert>
+                  )}
                 </div>
               </TabsContent>
             </Tabs>
@@ -543,6 +575,15 @@ export default function Wardrobe() {
                     }}
                   />
                 </div>
+                {importJob.failed > 0 && (
+                  <Alert variant="destructive">
+                    <AlertTitle>Some items failed</AlertTitle>
+                    <AlertDescription>
+                      {importJob.failed} item{importJob.failed === 1 ? "" : "s"} failed to import.
+                      Review the error details below.
+                    </AlertDescription>
+                  </Alert>
+                )}
                 <div className="max-h-48 overflow-y-auto space-y-2 text-sm">
                   {importJob.items.map((item) => (
                     <div key={item.id} className="space-y-1">
@@ -632,7 +673,12 @@ export default function Wardrobe() {
           placeholder="Try: Suggest 3 outfits using neutral colors and one statement accessory."
           className="min-h-[120px] bg-secondary/30 border-0 focus-visible:ring-1 focus-visible:ring-primary"
           value={aiPrompt}
-          onChange={(e) => setAiPrompt(e.target.value)}
+          onChange={(e) => {
+            setAiPrompt(e.target.value);
+            if (aiError) {
+              setAiError("");
+            }
+          }}
         />
         <div className="flex items-center gap-3">
           <Button
@@ -648,9 +694,10 @@ export default function Wardrobe() {
           </span>
         </div>
         {aiError && (
-          <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-            {aiError}
-          </div>
+          <Alert variant="destructive">
+            <AlertTitle>AI request failed</AlertTitle>
+            <AlertDescription>{aiError}</AlertDescription>
+          </Alert>
         )}
         {aiResponse && (
           <div className="rounded-lg border bg-secondary/30 p-4 text-sm text-foreground whitespace-pre-wrap">
