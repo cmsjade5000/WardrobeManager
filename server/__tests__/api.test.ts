@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import { execSync } from "child_process";
 import express from "express";
 import { createServer } from "http";
 import { PrismaClient } from "@prisma/client";
@@ -23,9 +24,10 @@ describe("API routes", () => {
     process.env.BG_REMOVAL_ENABLED = "false";
     process.env.IMAGE_CANVAS_WIDTH = "200";
     process.env.IMAGE_CANVAS_HEIGHT = "300";
+    process.env.DATABASE_URL = `file:${testDbPath}`;
 
     fs.rmSync(testDbPath, { force: true });
-    fs.copyFileSync(path.resolve("prisma", "dev.db"), testDbPath);
+    execSync("npx prisma migrate deploy", { stdio: "ignore" });
 
     testPrisma = new PrismaClient({
       datasources: {

@@ -15,6 +15,10 @@ import { createHash, randomUUID } from "crypto";
 import AdmZip from "adm-zip";
 import Papa, { type ParseError, type ParseResult } from "papaparse";
 
+if (!process.env.DATABASE_URL) {
+  process.env.DATABASE_URL = "file:./dev.db";
+}
+
 export const prisma = new PrismaClient();
 
 const BACKGROUND_REMOVAL_ENABLED = process.env.BG_REMOVAL_ENABLED !== "false";
