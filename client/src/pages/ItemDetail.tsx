@@ -29,6 +29,150 @@ const STOCK_IMAGES = [
   'https://images.unsplash.com/photo-1576566588028-4147f3842f27?w=800&q=80',
 ];
 
+const COLOR_SWATCHES = [
+  { name: "Black", rgb: [20, 20, 20] },
+  { name: "White", rgb: [245, 245, 245] },
+  { name: "Navy", rgb: [18, 32, 64] },
+  { name: "Blue", rgb: [70, 120, 190] },
+  { name: "Gray", rgb: [140, 140, 140] },
+  { name: "Brown", rgb: [120, 80, 50] },
+  { name: "Beige", rgb: [215, 200, 170] },
+  { name: "Green", rgb: [70, 140, 90] },
+  { name: "Red", rgb: [190, 60, 60] },
+  { name: "Pink", rgb: [220, 130, 160] },
+  { name: "Purple", rgb: [120, 90, 170] },
+  { name: "Orange", rgb: [230, 140, 70] },
+  { name: "Yellow", rgb: [235, 200, 90] },
+];
+
+const loadImage = (src: string): Promise<HTMLImageElement> =>
+  new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("Failed to load image"));
+    img.src = src;
+  });
+
+const closestColorName = (rgb: [number, number, number]): string => {
+  let best = COLOR_SWATCHES[0].name;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (const swatch of COLOR_SWATCHES) {
+    const [sr, sg, sb] = swatch.rgb;
+    const dr = rgb[0] - sr;
+    const dg = rgb[1] - sg;
+    const db = rgb[2] - sb;
+    const distance = dr * dr + dg * dg + db * db;
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = swatch.name;
+    }
+  }
+  return best;
+};
+
+const suggestColorFromImage = async (src: string): Promise<string | null> => {
+  try {
+    const img = await loadImage(src);
+    const sampleSize = 64;
+    const canvas = document.createElement("canvas");
+    canvas.width = sampleSize;
+    canvas.height = sampleSize;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      return null;
+    }
+
+    const margin = 0.2;
+    const sx = img.naturalWidth * margin;
+    const sy = img.naturalHeight * margin;
+    const sw = img.naturalWidth * (1 - margin * 2);
+    const sh = img.naturalHeight * (1 - margin * 2);
+    ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sampleSize, sampleSize);
+
+    const { data, width, height } = ctx.getImageData(0, 0, sampleSize, sampleSize);
+    const border = Math.max(2, Math.floor(sampleSize * 0.1));
+    let bgR = 0;
+    let bgG = 0;
+    let bgB = 0;
+    let bgCount = 0;
+    const alphaThreshold = 40;
+
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        if (x < border || x >= width - border || y < border || y >= height - border) {
+          const idx = (y * width + x) * 4;
+          const a = data[idx + 3];
+          if (a < alphaThreshold) {
+            continue;
+          }
+          bgR += data[idx];
+          bgG += data[idx + 1];
+          bgB += data[idx + 2];
+          bgCount += 1;
+        }
+      }
+    }
+
+    const bgColor = bgCount
+      ? [bgR / bgCount, bgG / bgCount, bgB / bgCount]
+      : null;
+    const bgThreshold = 26;
+    const bgThresholdSq = bgThreshold * bgThreshold * 3;
+
+    const findDominant = (skipBackground: boolean): [number, number, number] | null => {
+      const buckets = new Map<string, { count: number; r: number; g: number; b: number }>();
+      for (let i = 0; i < data.length; i += 4) {
+        const a = data[i + 3];
+        if (a < alphaThreshold) {
+          continue;
+        }
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+        if (skipBackground && bgColor) {
+          const dr = r - bgColor[0];
+          const dg = g - bgColor[1];
+          const db = b - bgColor[2];
+          if (dr * dr + dg * dg + db * db < bgThresholdSq) {
+            continue;
+          }
+        }
+        const key = `${r >> 4}-${g >> 4}-${b >> 4}`;
+        const bucket = buckets.get(key) ?? { count: 0, r: 0, g: 0, b: 0 };
+        bucket.count += 1;
+        bucket.r += r;
+        bucket.g += g;
+        bucket.b += b;
+        buckets.set(key, bucket);
+      }
+
+      let bestBucket: { count: number; r: number; g: number; b: number } | null = null;
+      for (const bucket of buckets.values()) {
+        if (!bestBucket || bucket.count > bestBucket.count) {
+          bestBucket = bucket;
+        }
+      }
+      if (!bestBucket) {
+        return null;
+      }
+      return [
+        Math.round(bestBucket.r / bestBucket.count),
+        Math.round(bestBucket.g / bestBucket.count),
+        Math.round(bestBucket.b / bestBucket.count),
+      ];
+    };
+
+    const dominant = findDominant(true) ?? findDominant(false);
+    if (!dominant) {
+      return null;
+    }
+    return closestColorName(dominant);
+  } catch (error) {
+    console.warn("Color suggestion failed:", error);
+    return null;
+  }
+};
+
 const itemSchema = z.object({
   name: z.string().min(1, "Name is required"),
   type: z.enum(["TOP", "BOTTOM", "OUTERWEAR", "ONE_PIECE", "SHOES", "ACCESSORY"]),
@@ -136,6 +280,17 @@ export default function ItemDetail() {
         const url = URL.createObjectURL(normalizedFile);
         setPreviewUrl(url);
         form.setValue("imageUrl", ""); // Clear URL if file selected
+        const currentColor = form.getValues("color").trim();
+        if (!currentColor) {
+          const suggestion = await suggestColorFromImage(url);
+          if (suggestion) {
+            form.setValue("color", suggestion, { shouldValidate: true });
+            toast({
+              title: "Color suggested",
+              description: `Suggested color: ${suggestion}.`,
+            });
+          }
+        }
         if (isHeic) {
           toast({ title: "HEIC converted", description: "Uploaded as JPEG for processing." });
         }
