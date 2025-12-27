@@ -171,7 +171,21 @@ export const api = {
         method: "POST",
         body: formData,
       });
-      if (!res.ok) throw new Error("Failed to start CSV import");
+      if (!res.ok) {
+        let message = "Failed to start CSV import";
+        try {
+          const data = await res.json();
+          if (typeof data?.error === "string") {
+            message = data.error;
+          }
+          if (Array.isArray(data?.details) && data.details.length) {
+            message = `${message}: ${data.details.join(", ")}`;
+          }
+        } catch {
+          // ignore parse errors
+        }
+        throw new Error(message);
+      }
       return res.json();
     },
     status: async (id: string): Promise<ImportJob> => {

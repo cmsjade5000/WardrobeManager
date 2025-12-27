@@ -265,6 +265,20 @@ export default function Wardrobe() {
     });
   };
 
+  const handleDownloadTemplate = () => {
+    const templateRows = [
+      "filename,name,type,category,color,brand,size,material,notes,tags",
+      "example-top.jpg,Classic Tee,TOP,T-Shirt,White,Uniqlo,M,Cotton,Everyday tee,Casual",
+    ];
+    const blob = new Blob([templateRows.join("\n")], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "wardrobe-import-template.csv";
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   const renderDefaultFields = () => (
     <div className="grid gap-4 sm:grid-cols-3">
       <div className="grid gap-2">
@@ -472,6 +486,15 @@ export default function Wardrobe() {
                   <div className="rounded-lg border bg-secondary/20 p-3 text-xs text-muted-foreground">
                     CSV columns: filename, name, type, category, color, brand, size, material, notes, tags
                     (comma-separated).
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="mt-3"
+                      onClick={handleDownloadTemplate}
+                    >
+                      Download CSV template
+                    </Button>
                   </div>
                   {renderDefaultFields()}
                   <div className="flex flex-col sm:flex-row gap-3 sm:justify-end">
@@ -513,14 +536,19 @@ export default function Wardrobe() {
                 </div>
                 <div className="max-h-48 overflow-y-auto space-y-2 text-sm">
                   {importJob.items.map((item) => (
-                    <div key={item.id} className="flex items-center justify-between gap-3">
-                      <span className="truncate">{item.filename}</span>
-                      <span className="flex items-center gap-2 text-xs text-muted-foreground">
-                        {item.status === "processing" && <Loader2 className="h-3 w-3 animate-spin" />}
-                        {item.status === "completed" && <Check className="h-3 w-3 text-emerald-500" />}
-                        {item.status === "failed" && <X className="h-3 w-3 text-destructive" />}
-                        {item.status}
-                      </span>
+                    <div key={item.id} className="space-y-1">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="truncate">{item.filename}</span>
+                        <span className="flex items-center gap-2 text-xs text-muted-foreground">
+                          {item.status === "processing" && <Loader2 className="h-3 w-3 animate-spin" />}
+                          {item.status === "completed" && <Check className="h-3 w-3 text-emerald-500" />}
+                          {item.status === "failed" && <X className="h-3 w-3 text-destructive" />}
+                          {item.status}
+                        </span>
+                      </div>
+                      {item.status === "failed" && item.error && (
+                        <p className="text-xs text-destructive">{item.error}</p>
+                      )}
                     </div>
                   ))}
                 </div>

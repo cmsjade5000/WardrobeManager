@@ -302,4 +302,63 @@ describe("API routes", () => {
 
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
+
+  it("reports CSV validation errors", async () => {
+    const tmpDir = path.resolve("uploads", `import-csv-errors-${Date.now()}`);
+    fs.mkdirSync(tmpDir, { recursive: true });
+    const fileOne = path.join(tmpDir, "csv-valid.png");
+
+    await sharp({
+      create: {
+        width: 300,
+        height: 400,
+        channels: 4,
+        background: { r: 120, g: 120, b: 120, alpha: 1 },
+      },
+    })
+      .png()
+      .toFile(fileOne);
+
+    const zipPath = path.join(tmpDir, "import.zip");
+    const zip = new AdmZip();
+    zip.addLocalFile(fileOne);
+    zip.writeZip(zipPath);
+
+    const csvPath = path.join(tmpDir, "import.csv");
+    const csvRows = [
+      "filename,name,type,category,color",
+      "csv-valid.png,Valid Tee,TOP,T-Shirt,White",
+      ",Missing Filename,TOP,T-Shirt,White",
+    ];
+    fs.writeFileSync(csvPath, csvRows.join("\n"));
+
+    const importRes = await request(app)
+      .post("/api/imports/csv")
+      .field("type", "TOP")
+      .field("category", "Tops")
+      .field("color", "White")
+      .attach("csv", csvPath)
+      .attach("zip", zipPath);
+
+    expect(importRes.status).toBe(200);
+    const jobId = importRes.body.id;
+
+    let job = importRes.body;
+    for (let i = 0; i < 12; i += 1) {
+      if (job.status === "completed") {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      const statusRes = await request(app).get(`/api/imports/${jobId}`);
+      expect(statusRes.status).toBe(200);
+      job = statusRes.body;
+    }
+
+    expect(job.status).toBe("completed");
+    expect(job.failed).toBe(1);
+    const failedRow = job.items.find((item: any) => item.status === "failed");
+    expect(failedRow?.error).toBe("Missing filename in CSV.");
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
 });
