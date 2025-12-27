@@ -66,3 +66,31 @@ model OutfitItem {
 
   @@id([outfitId, itemId])
 }
+
+model ImportJob {
+  id           String          @id @default(uuid())
+  status       String
+  total        Int
+  completed    Int
+  failed       Int
+  defaultsJson String
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  items        ImportJobItem[]
+}
+
+model ImportJobItem {
+  id         String    @id @default(uuid())
+  jobId      String
+  filename   String
+  status     String
+  itemId     String?
+  imageUrl   String?
+  error      String?
+  filePath   String?
+  payloadJson String
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  job ImportJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+}

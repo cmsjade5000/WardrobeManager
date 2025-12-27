@@ -3,7 +3,7 @@ import type { Server } from "http";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, type ImportJob as PrismaImportJob, type ImportJobItem as PrismaImportJobItem } from "@prisma/client";
 import sharp from "sharp";
 import { createHash, randomUUID } from "crypto";
 import AdmZip from "adm-zip";
@@ -219,7 +219,6 @@ export async function registerRoutes(
   app: Express,
   prismaClient: PrismaClient = prisma
 ): Promise<Server> {
-  type ImportJobStatus = "queued" | "processing" | "completed";
   type ImportItemStatus = "queued" | "processing" | "completed" | "failed";
   type ImportItemPayload = {
     name: string;
@@ -232,43 +231,43 @@ export async function registerRoutes(
     notes?: string;
     tags: string[];
   };
-  type ImportJobItem = {
-    id: string;
-    filename: string;
-    status: ImportItemStatus;
-    itemId?: string;
-    imageUrl?: string;
-    error?: string;
-    filePath?: string;
-    payload: ImportItemPayload;
+  type ImportDefaults = {
+    type: string;
+    category: string;
+    color: string;
+    brand?: string;
+    size?: string;
+    material?: string;
+    notes?: string;
+    tags: string[];
   };
-  type ImportJob = {
-    id: string;
-    status: ImportJobStatus;
-    total: number;
-    completed: number;
-    failed: number;
-    items: ImportJobItem[];
-    defaults: {
-      type: string;
-      category: string;
-      color: string;
-      brand?: string;
-      size?: string;
-      material?: string;
-      notes?: string;
-      tags: string[];
-    };
-    createdAt: string;
-  };
-
-  const importJobs = new Map<string, ImportJob>();
+  type ImportJobItemRecord = PrismaImportJobItem;
+  type ImportJobRecord = PrismaImportJob & { items: ImportJobItemRecord[] };
   const importQueue: string[] = [];
   let importQueueRunning = false;
 
-  const serializeImportJob = (job: ImportJob) => ({
-    ...job,
-    items: job.items.map(({ filePath: _filePath, payload: _payload, ...item }) => item),
+  const parseJson = <T,>(value: string, fallback: T): T => {
+    try {
+      return JSON.parse(value) as T;
+    } catch {
+      return fallback;
+    }
+  };
+
+  const serializeImportJob = (job: ImportJobRecord) => ({
+    id: job.id,
+    status: job.status,
+    total: job.total,
+    completed: job.completed,
+    failed: job.failed,
+    defaults: parseJson<ImportDefaults>(job.defaultsJson, {
+      type: "",
+      category: "",
+      color: "",
+      tags: [],
+    }),
+    createdAt: job.createdAt.toISOString(),
+    items: job.items.map(({ filePath: _filePath, payloadJson: _payload, ...item }) => item),
   });
 
   const resolveTagIds = async (names: string[], cache: Map<string, string>) => {
@@ -335,22 +334,63 @@ export async function registerRoutes(
     return map;
   };
 
-  const processImportJob = async (job: ImportJob) => {
-    job.status = "processing";
+  const processImportJob = async (jobId: string) => {
+    const job = await prismaClient.importJob.findUnique({
+      where: { id: jobId },
+      include: { items: true },
+    });
+    if (!job) {
+      return;
+    }
+
+    let completed = job.completed;
+    let failed = job.failed;
+    await prismaClient.importJob.update({
+      where: { id: jobId },
+      data: { status: "processing" },
+    });
+
     const tagCache = new Map<string, string>();
     const existingHashes = await buildExistingHashIndex();
     const seenHashes = new Set(existingHashes.keys());
+
     for (const item of job.items) {
       if (item.status === "failed") {
         continue;
       }
+
       if (!item.filePath) {
-        item.status = "failed";
-        item.error = "Missing file for import.";
-        job.failed += 1;
+        failed += 1;
+        await prismaClient.importJobItem.update({
+          where: { id: item.id },
+          data: { status: "failed", error: "Missing file for import." },
+        });
+        await prismaClient.importJob.update({
+          where: { id: jobId },
+          data: { failed },
+        });
         continue;
       }
-      item.status = "processing";
+
+      const payload = parseJson<ImportItemPayload | null>(item.payloadJson, null);
+      if (!payload) {
+        failed += 1;
+        await prismaClient.importJobItem.update({
+          where: { id: item.id },
+          data: { status: "failed", error: "Invalid import payload." },
+        });
+        await prismaClient.importJob.update({
+          where: { id: jobId },
+          data: { failed },
+        });
+        continue;
+      }
+
+      await prismaClient.importJobItem.update({
+        where: { id: item.id },
+        data: { status: "processing" },
+      });
+
       try {
         const imageUrl = await processUploadedImage(item.filePath);
         let imageHash: string | null = null;
@@ -363,24 +403,30 @@ export async function registerRoutes(
         }
 
         if (imageHash && seenHashes.has(imageHash)) {
-          item.status = "failed";
-          item.error = "Duplicate image detected.";
-          job.failed += 1;
+          failed += 1;
+          await prismaClient.importJobItem.update({
+            where: { id: item.id },
+            data: { status: "failed", error: "Duplicate image detected." },
+          });
+          await prismaClient.importJob.update({
+            where: { id: jobId },
+            data: { failed },
+          });
           continue;
         }
 
-        const tagIds = await resolveTagIds(item.payload.tags, tagCache);
+        const tagIds = await resolveTagIds(payload.tags, tagCache);
         const created = await prismaClient.item.create({
           data: {
-            name: item.payload.name,
-            type: item.payload.type,
-            category: item.payload.category,
-            color: item.payload.color,
+            name: payload.name,
+            type: payload.type,
+            category: payload.category,
+            color: payload.color,
             imageUrl,
-            brand: item.payload.brand,
-            size: item.payload.size,
-            material: item.payload.material,
-            notes: item.payload.notes,
+            brand: payload.brand,
+            size: payload.size,
+            material: payload.material,
+            notes: payload.notes,
             tags: tagIds.length
               ? {
                   create: tagIds.map((tagId) => ({
@@ -390,20 +436,44 @@ export async function registerRoutes(
               : undefined,
           },
         });
-        item.status = "completed";
-        item.itemId = created.id;
-        item.imageUrl = imageUrl;
-        job.completed += 1;
+
+        completed += 1;
+        await prismaClient.importJobItem.update({
+          where: { id: item.id },
+          data: {
+            status: "completed",
+            itemId: created.id,
+            imageUrl,
+          },
+        });
+        await prismaClient.importJob.update({
+          where: { id: jobId },
+          data: { completed },
+        });
+
         if (imageHash) {
           seenHashes.add(imageHash);
         }
       } catch (error) {
-        item.status = "failed";
-        item.error = error instanceof Error ? error.message : "Unknown error";
-        job.failed += 1;
+        failed += 1;
+        await prismaClient.importJobItem.update({
+          where: { id: item.id },
+          data: {
+            status: "failed",
+            error: error instanceof Error ? error.message : "Unknown error",
+          },
+        });
+        await prismaClient.importJob.update({
+          where: { id: jobId },
+          data: { failed },
+        });
       }
     }
-    job.status = "completed";
+
+    await prismaClient.importJob.update({
+      where: { id: jobId },
+      data: { status: "completed", completed, failed },
+    });
   };
 
   const runImportQueue = async () => {
@@ -416,20 +486,33 @@ export async function registerRoutes(
       if (!jobId) {
         continue;
       }
-      const job = importJobs.get(jobId);
-      if (!job) {
-        continue;
-      }
-      await processImportJob(job);
+      await processImportJob(jobId);
     }
     importQueueRunning = false;
   };
 
-  const enqueueImportJob = (job: ImportJob) => {
-    importJobs.set(job.id, job);
-    importQueue.push(job.id);
+  const enqueueImportJob = (jobId: string) => {
+    importQueue.push(jobId);
     void runImportQueue();
   };
+
+  const restoreImportQueue = async () => {
+    const jobs = await prismaClient.importJob.findMany({
+      where: { status: { in: ["queued", "processing"] } },
+      select: { id: true, status: true },
+    });
+    for (const job of jobs) {
+      if (job.status === "processing") {
+        await prismaClient.importJob.update({
+          where: { id: job.id },
+          data: { status: "queued" },
+        });
+      }
+      enqueueImportJob(job.id);
+    }
+  };
+
+  void restoreImportQueue();
 
   // Health Check
   app.get("/api/health", (_req, res) => {
@@ -723,7 +806,7 @@ export async function registerRoutes(
         }
       }
 
-      const defaults = {
+      const defaults: ImportDefaults = {
         type,
         category,
         color,
@@ -734,34 +817,48 @@ export async function registerRoutes(
         tags: tagIds,
       };
 
-      const job: ImportJob = {
-        id: randomUUID(),
-        status: "queued",
-        total: files.length,
-        completed: 0,
-        failed: 0,
-        items: files.map((file) => ({
+      const itemsData = files.map((file) => {
+        const payload: ImportItemPayload = {
+          name: path.parse(file.originalname).name || "Imported item",
+          type: defaults.type,
+          category: defaults.category,
+          color: defaults.color,
+          brand: defaults.brand,
+          size: defaults.size,
+          material: defaults.material,
+          notes: defaults.notes,
+          tags: defaults.tags,
+        };
+
+        return {
           id: randomUUID(),
           filename: file.originalname,
           status: "queued",
           filePath: file.path,
-          payload: {
-            name: path.parse(file.originalname).name || "Imported item",
-            type: defaults.type,
-            category: defaults.category,
-            color: defaults.color,
-            brand: defaults.brand,
-            size: defaults.size,
-            material: defaults.material,
-            notes: defaults.notes,
-            tags: defaults.tags,
-          },
-        })),
-        defaults,
-        createdAt: new Date().toISOString(),
-      };
+          payloadJson: JSON.stringify(payload),
+        };
+      });
 
-      enqueueImportJob(job);
+      const hasPending = itemsData.some((item) => item.status === "queued");
+      const job = await prismaClient.importJob.create({
+        data: {
+          id: randomUUID(),
+          status: hasPending ? "queued" : "completed",
+          total: itemsData.length,
+          completed: 0,
+          failed: 0,
+          defaultsJson: JSON.stringify(defaults),
+          items: {
+            create: itemsData,
+          },
+        },
+        include: { items: true },
+      });
+
+      if (hasPending) {
+        enqueueImportJob(job.id);
+      }
+
       return res.json(serializeImportJob(job));
     } catch (error) {
       console.error("Create import job error:", error);
@@ -785,7 +882,7 @@ export async function registerRoutes(
       }
 
       const { type, category, color, brand, size, material, notes, tags } = req.body;
-      const defaults = {
+      const defaults: ImportDefaults = {
         type: typeof type === "string" ? type.trim() : "",
         category: typeof category === "string" ? category.trim() : "",
         color: typeof color === "string" ? color.trim() : "",
@@ -854,7 +951,14 @@ export async function registerRoutes(
 
         const jobId = randomUUID();
         let failed = 0;
-        const items: ImportJobItem[] = [];
+        const itemsData: Array<{
+          id: string;
+          filename: string;
+          status: ImportItemStatus;
+          error?: string;
+          filePath?: string;
+          payloadJson: string;
+        }> = [];
 
         for (let index = 0; index < rows.length; index += 1) {
           const row = rows[index];
@@ -904,38 +1008,48 @@ export async function registerRoutes(
             }
           }
 
-          items.push({
+          const payload: ImportItemPayload = {
+            name: displayName,
+            type: itemType,
+            category: itemCategory,
+            color: itemColor,
+            brand: itemBrand,
+            size: itemSize,
+            material: itemMaterial,
+            notes: itemNotes,
+            tags: itemTags,
+          };
+
+          itemsData.push({
             id: randomUUID(),
             filename: filename || displayName,
             status,
             error,
             filePath,
-            payload: {
-              name: displayName,
-              type: itemType,
-              category: itemCategory,
-              color: itemColor,
-              brand: itemBrand,
-              size: itemSize,
-              material: itemMaterial,
-              notes: itemNotes,
-              tags: itemTags,
-            },
+            payloadJson: JSON.stringify(payload),
           });
         }
 
-        const job: ImportJob = {
-          id: jobId,
-          status: "queued",
-          total: items.length,
-          completed: 0,
-          failed,
-          items,
-          defaults,
-          createdAt: new Date().toISOString(),
-        };
+        const hasPending = itemsData.some((item) => item.status === "queued");
+        const job = await prismaClient.importJob.create({
+          data: {
+            id: jobId,
+            status: hasPending ? "queued" : "completed",
+            total: itemsData.length,
+            completed: 0,
+            failed,
+            defaultsJson: JSON.stringify(defaults),
+            items: {
+              create: itemsData,
+            },
+          },
+          include: { items: true },
+        });
 
-        enqueueImportJob(job);
+        if (hasPending) {
+          enqueueImportJob(job.id);
+        }
+
         return res.json(serializeImportJob(job));
       } catch (error) {
         console.error("CSV import error:", error);
@@ -947,8 +1061,11 @@ export async function registerRoutes(
     }
   );
 
-  app.get("/api/imports/:id", (req, res) => {
-    const job = importJobs.get(req.params.id);
+  app.get("/api/imports/:id", async (req, res) => {
+    const job = await prismaClient.importJob.findUnique({
+      where: { id: req.params.id },
+      include: { items: true },
+    });
     if (!job) {
       return res.status(404).json({ error: "Import job not found" });
     }
