@@ -1,8 +1,8 @@
 import { useState, useEffect } from "react";
 import { useRoute, useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
-import { Item } from "@/lib/types";
+import { api, getApiErrorDetailMessages, getApiErrorMessage } from "@/lib/api";
+import { Item, OutfitWithItems } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -11,24 +11,6 @@ import { Label } from "@/components/ui/label";
 import { Plus, X, ArrowUp, ArrowDown, Save, Loader2, ArrowLeft, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { motion, AnimatePresence } from "framer-motion";
-
-interface OutfitItem {
-  id: string;
-  position: number;
-  item: {
-    id: string;
-    name: string;
-    imageUrl: string;
-    category: string;
-  } | null;
-}
-
-interface Outfit {
-  id: string;
-  name: string;
-  notes?: string;
-  items: OutfitItem[];
-}
 
 export default function OutfitEdit() {
   const [_match, params] = useRoute("/outfit/:id/edit");
@@ -41,7 +23,7 @@ export default function OutfitEdit() {
   const [outfitNotes, setOutfitNotes] = useState("");
   const [selectedItems, setSelectedItems] = useState<Item[]>([]);
 
-  const { data: outfit, isLoading: outfitLoading } = useQuery<Outfit>({
+  const { data: outfit, isLoading: outfitLoading } = useQuery<OutfitWithItems>({
     queryKey: ['outfit', outfitId],
     queryFn: () => api.outfits.get(outfitId),
     enabled: Boolean(outfitId)
@@ -98,8 +80,13 @@ export default function OutfitEdit() {
       queryClient.invalidateQueries({ queryKey: ['outfit', outfitId] });
       setLocation('/outfits');
     },
-    onError: () => {
-      toast({ title: "Update failed", description: "Please try again.", variant: "destructive" });
+    onError: (error) => {
+      const details = getApiErrorDetailMessages(error);
+      toast({
+        title: getApiErrorMessage(error, "Update failed"),
+        description: details.length ? details.join(" • ") : "Please try again.",
+        variant: "destructive",
+      });
     }
   });
 
@@ -109,7 +96,15 @@ export default function OutfitEdit() {
       toast({ title: "Outfit deleted" });
       queryClient.invalidateQueries({ queryKey: ['outfits'] });
       setLocation('/outfits');
-    }
+    },
+    onError: (error) => {
+      const details = getApiErrorDetailMessages(error);
+      toast({
+        title: getApiErrorMessage(error, "Delete failed"),
+        description: details.length ? details.join(" • ") : "Please try again.",
+        variant: "destructive",
+      });
+    },
   });
 
   const handleSave = () => {

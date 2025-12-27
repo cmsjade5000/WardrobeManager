@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { api, getApiErrorDetailMessages, getApiErrorMessage } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
@@ -32,8 +32,13 @@ export default function Tags() {
       setNewTag("");
       toast({ title: "Tag created", description: "New category added." });
     },
-    onError: () => {
-      toast({ title: "Failed to create tag", description: "Tag may already exist.", variant: "destructive" });
+    onError: (error) => {
+      const details = getApiErrorDetailMessages(error);
+      toast({
+        title: getApiErrorMessage(error, "Failed to create tag"),
+        description: details.length ? details.join(" • ") : "Please try again.",
+        variant: "destructive",
+      });
     }
   });
 
@@ -44,8 +49,13 @@ export default function Tags() {
       setEditingTag(null);
       toast({ title: "Tag updated" });
     },
-    onError: () => {
-      toast({ title: "Failed to update tag", variant: "destructive" });
+    onError: (error) => {
+      const details = getApiErrorDetailMessages(error);
+      toast({
+        title: getApiErrorMessage(error, "Failed to update tag"),
+        description: details.length ? details.join(" • ") : "Please try again.",
+        variant: "destructive",
+      });
     }
   });
 
@@ -55,8 +65,13 @@ export default function Tags() {
       queryClient.invalidateQueries({ queryKey: ['tags'] });
       toast({ title: "Tag deleted" });
     },
-    onError: () => {
-      toast({ title: "Failed to delete tag", variant: "destructive" });
+    onError: (error) => {
+      const details = getApiErrorDetailMessages(error);
+      toast({
+        title: getApiErrorMessage(error, "Failed to delete tag"),
+        description: details.length ? details.join(" • ") : "Please try again.",
+        variant: "destructive",
+      });
     }
   });
 

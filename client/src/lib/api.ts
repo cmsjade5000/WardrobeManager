@@ -1,4 +1,83 @@
-import { ImportJob, Item, Outfit } from './types';
+import { ImportJob, Item, Outfit, OutfitRecord, OutfitWithItems, Tag } from './types';
+
+export class ApiError extends Error {
+  status: number;
+  details?: unknown;
+
+  constructor(message: string, status: number, details?: unknown) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.details = details;
+  }
+}
+
+const parseErrorResponse = async (res: Response, fallbackMessage: string): Promise<never> => {
+  let message = fallbackMessage;
+  let details: unknown;
+  try {
+    const data = await res.json();
+    if (typeof data?.error === "string") {
+      message = data.error;
+    }
+    if (typeof data?.details !== "undefined") {
+      details = data.details;
+    }
+  } catch {
+    // ignore parse errors
+  }
+  throw new ApiError(message, res.status, details);
+};
+
+const requireOkJson = async <T>(res: Response, fallbackMessage: string): Promise<T> => {
+  if (!res.ok) {
+    return parseErrorResponse(res, fallbackMessage);
+  }
+  return res.json();
+};
+
+export const getApiErrorMessage = (error: unknown, fallback: string): string => {
+  return error instanceof Error ? error.message : fallback;
+};
+
+export const getApiErrorFieldErrors = (error: unknown): Record<string, string[]> | null => {
+  if (!(error instanceof ApiError)) {
+    return null;
+  }
+  if (!error.details || typeof error.details !== "object" || Array.isArray(error.details)) {
+    return null;
+  }
+  return error.details as Record<string, string[]>;
+};
+
+export const getApiErrorDetailMessages = (error: unknown): string[] => {
+  if (!(error instanceof ApiError)) {
+    return [];
+  }
+  const details = error.details;
+  if (!details) {
+    return [];
+  }
+  if (typeof details === "string") {
+    return [details];
+  }
+  if (Array.isArray(details)) {
+    return details.filter((item): item is string => typeof item === "string");
+  }
+  if (typeof details === "object") {
+    const messages: string[] = [];
+    for (const [field, fieldMessages] of Object.entries(details)) {
+      if (Array.isArray(fieldMessages)) {
+        const message = fieldMessages.find((item) => typeof item === "string");
+        if (message) {
+          messages.push(`${field}: ${message}`);
+        }
+      }
+    }
+    return messages;
+  }
+  return [];
+};
 
 export const api = {
   ai: {
@@ -8,8 +87,7 @@ export const api = {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt }),
       });
-      if (!res.ok) throw new Error("Failed to generate response");
-      return res.json();
+      return requireOkJson<{ content?: string }>(res, "Failed to generate response");
     },
   },
   items: {
@@ -22,13 +100,11 @@ export const api = {
         if (filters.color && filters.color !== 'ALL') params.append('color', filters.color);
       }
       const res = await fetch(`/api/items?${params.toString()}`);
-      if (!res.ok) throw new Error('Failed to fetch items');
-      return res.json();
+      return requireOkJson<Item[]>(res, "Failed to fetch items");
     },
     get: async (id: string) => {
       const res = await fetch(`/api/items/${id}`);
-      if (!res.ok) throw new Error('Failed to fetch item');
-      return res.json();
+      return requireOkJson<Item>(res, "Failed to fetch item");
     },
     create: async (data: any) => {
       const formData = new FormData();
@@ -44,8 +120,7 @@ export const api = {
         method: 'POST',
         body: formData,
       });
-      if (!res.ok) throw new Error('Failed to create item');
-      return res.json();
+      return requireOkJson<Item>(res, "Failed to create item");
     },
     update: async (id: string, updates: Partial<Item> & { image?: File }) => {
       const formData = new FormData();
@@ -63,12 +138,13 @@ export const api = {
         method: 'PUT',
         body: formData,
       });
-      if (!res.ok) throw new Error('Failed to update item');
-      return res.json();
+      return requireOkJson<Item>(res, "Failed to update item");
     },
     delete: async (id: string) => {
       const res = await fetch(`/api/items/${id}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error('Failed to delete item');
+      if (!res.ok) {
+        return parseErrorResponse(res, "Failed to delete item");
+      }
       return true;
     }
   },
@@ -76,8 +152,7 @@ export const api = {
   tags: {
     list: async () => {
       const res = await fetch('/api/tags');
-      if (!res.ok) throw new Error('Failed to fetch tags');
-      return res.json();
+      return requireOkJson<Tag[]>(res, "Failed to fetch tags");
     },
     create: async (name: string) => {
       const res = await fetch('/api/tags', {
@@ -85,8 +160,7 @@ export const api = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name }),
       });
-      if (!res.ok) throw new Error('Failed to create tag');
-      return res.json();
+      return requireOkJson<Tag>(res, "Failed to create tag");
     },
     update: async (id: string, name: string) => {
       const res = await fetch(`/api/tags/${id}`, {
@@ -94,12 +168,13 @@ export const api = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name }),
       });
-      if (!res.ok) throw new Error('Failed to update tag');
-      return res.json();
+      return requireOkJson<Tag>(res, "Failed to update tag");
     },
     delete: async (id: string) => {
       const res = await fetch(`/api/tags/${id}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error('Failed to delete tag');
+      if (!res.ok) {
+        return parseErrorResponse(res, "Failed to delete tag");
+      }
       return true;
     }
   },
@@ -135,8 +210,7 @@ export const api = {
         method: "POST",
         body: formData,
       });
-      if (!res.ok) throw new Error("Failed to start import");
-      return res.json();
+      return requireOkJson<ImportJob>(res, "Failed to start import");
     },
     createCsv: async (payload: {
       csv: File;
@@ -168,40 +242,22 @@ export const api = {
         method: "POST",
         body: formData,
       });
-      if (!res.ok) {
-        let message = "Failed to start CSV import";
-        try {
-          const data = await res.json();
-          if (typeof data?.error === "string") {
-            message = data.error;
-          }
-          if (Array.isArray(data?.details) && data.details.length) {
-            message = `${message}: ${data.details.join(", ")}`;
-          }
-        } catch {
-          // ignore parse errors
-        }
-        throw new Error(message);
-      }
-      return res.json();
+      return requireOkJson<ImportJob>(res, "Failed to start CSV import");
     },
     status: async (id: string): Promise<ImportJob> => {
       const res = await fetch(`/api/imports/${id}`);
-      if (!res.ok) throw new Error("Failed to fetch import status");
-      return res.json();
+      return requireOkJson<ImportJob>(res, "Failed to fetch import status");
     },
   },
 
   outfits: {
     list: async () => {
       const res = await fetch('/api/outfits');
-      if (!res.ok) throw new Error('Failed to fetch outfits');
-      return res.json();
+      return requireOkJson<OutfitWithItems[]>(res, "Failed to fetch outfits");
     },
     get: async (id: string) => {
       const res = await fetch(`/api/outfits/${id}`);
-      if (!res.ok) throw new Error('Failed to fetch outfit');
-      return res.json();
+      return requireOkJson<OutfitWithItems>(res, "Failed to fetch outfit");
     },
     create: async (outfit: Omit<Outfit, 'id' | 'createdAt'>) => {
       const res = await fetch('/api/outfits', {
@@ -209,12 +265,13 @@ export const api = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(outfit),
       });
-      if (!res.ok) throw new Error('Failed to create outfit');
-      return res.json();
+      return requireOkJson<OutfitRecord>(res, "Failed to create outfit");
     },
     delete: async (id: string) => {
       const res = await fetch(`/api/outfits/${id}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error('Failed to delete outfit');
+      if (!res.ok) {
+        return parseErrorResponse(res, "Failed to delete outfit");
+      }
       return true;
     },
     update: async (id: string, outfit: { name?: string; notes?: string; items?: { itemId: string; position: number }[] }) => {
@@ -223,8 +280,7 @@ export const api = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(outfit),
       });
-      if (!res.ok) throw new Error('Failed to update outfit');
-      return res.json();
+      return requireOkJson<OutfitRecord>(res, "Failed to update outfit");
     }
   }
 };

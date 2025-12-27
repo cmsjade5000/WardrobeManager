@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useRoute, useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { api, getApiErrorDetailMessages, getApiErrorFieldErrors, getApiErrorMessage } from "@/lib/api";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -313,7 +313,24 @@ export default function ItemDetail() {
       queryClient.invalidateQueries({ queryKey: ['items'] });
       toast({ title: "Item added", description: "Your wardrobe has been updated." });
       setLocation("/");
-    }
+    },
+    onError: (error) => {
+      const fieldErrors = getApiErrorFieldErrors(error);
+      if (fieldErrors) {
+        for (const [field, messages] of Object.entries(fieldErrors)) {
+          const message = messages?.[0];
+          if (message && field in form.getValues()) {
+            form.setError(field as keyof ItemFormValues, { message });
+          }
+        }
+      }
+      const details = getApiErrorDetailMessages(error);
+      toast({
+        title: getApiErrorMessage(error, "Failed to create item"),
+        description: details.length ? details.join(" • ") : "Please try again.",
+        variant: "destructive",
+      });
+    },
   });
 
   const updateMutation = useMutation({
@@ -321,7 +338,24 @@ export default function ItemDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['items'] });
       toast({ title: "Item updated", description: "Changes saved successfully." });
-    }
+    },
+    onError: (error) => {
+      const fieldErrors = getApiErrorFieldErrors(error);
+      if (fieldErrors) {
+        for (const [field, messages] of Object.entries(fieldErrors)) {
+          const message = messages?.[0];
+          if (message && field in form.getValues()) {
+            form.setError(field as keyof ItemFormValues, { message });
+          }
+        }
+      }
+      const details = getApiErrorDetailMessages(error);
+      toast({
+        title: getApiErrorMessage(error, "Failed to update item"),
+        description: details.length ? details.join(" • ") : "Please try again.",
+        variant: "destructive",
+      });
+    },
   });
 
   const deleteMutation = useMutation({
@@ -330,7 +364,15 @@ export default function ItemDetail() {
       queryClient.invalidateQueries({ queryKey: ['items'] });
       toast({ title: "Item deleted", description: "Item removed from wardrobe." });
       setLocation("/");
-    }
+    },
+    onError: (error) => {
+      const details = getApiErrorDetailMessages(error);
+      toast({
+        title: getApiErrorMessage(error, "Failed to delete item"),
+        description: details.length ? details.join(" • ") : "Please try again.",
+        variant: "destructive",
+      });
+    },
   });
 
   const onSubmit = (data: ItemFormValues) => {

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { api, getApiErrorDetailMessages, getApiErrorMessage } from "@/lib/api";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -82,8 +82,9 @@ export default function Wardrobe() {
       setAiError("");
     },
     onError: (error) => {
-      const message = error instanceof Error ? error.message : "Failed to generate response.";
-      setAiError(message);
+      const details = getApiErrorDetailMessages(error);
+      const message = getApiErrorMessage(error, "Failed to generate response.");
+      setAiError(details.length ? `${message} ${details.join(" • ")}` : message);
     },
   });
 
@@ -110,8 +111,12 @@ export default function Wardrobe() {
     }) => api.imports.create(payload),
     onSuccess: handleImportStarted,
     onError: (error) => {
-      const message = error instanceof Error ? error.message : "Failed to start import.";
-      toast({ title: "Import failed", description: message, variant: "destructive" });
+      const details = getApiErrorDetailMessages(error);
+      toast({
+        title: getApiErrorMessage(error, "Import failed"),
+        description: details.length ? details.join(" • ") : "Please try again.",
+        variant: "destructive",
+      });
     },
   });
 
@@ -131,8 +136,12 @@ export default function Wardrobe() {
       api.imports.createCsv(payload),
     onSuccess: handleImportStarted,
     onError: (error) => {
-      const message = error instanceof Error ? error.message : "Failed to start import.";
-      toast({ title: "CSV import failed", description: message, variant: "destructive" });
+      const details = getApiErrorDetailMessages(error);
+      toast({
+        title: getApiErrorMessage(error, "CSV import failed"),
+        description: details.length ? details.join(" • ") : "Please try again.",
+        variant: "destructive",
+      });
     },
   });
 

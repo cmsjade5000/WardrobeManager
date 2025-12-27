@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { api, getApiErrorDetailMessages, getApiErrorMessage } from "@/lib/api";
 import { Item, OutfitItem } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -144,10 +144,11 @@ export default function OutfitBuilder() {
       setSelectedItems([]);
       queryClient.invalidateQueries({ queryKey: ["outfits"] });
     },
-    onError: () => {
+    onError: (error) => {
+      const details = getApiErrorDetailMessages(error);
       toast({
-        title: "Save failed",
-        description: "Please try again.",
+        title: getApiErrorMessage(error, "Save failed"),
+        description: details.length ? details.join(" • ") : "Please try again.",
         variant: "destructive",
       });
     },

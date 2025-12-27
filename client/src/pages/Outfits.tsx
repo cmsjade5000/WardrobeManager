@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { api, getApiErrorDetailMessages, getApiErrorMessage } from "@/lib/api";
+import { OutfitWithItems } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Link } from "wouter";
@@ -7,27 +8,11 @@ import { Plus, Trash2, Loader2, Layers, Pencil } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { motion } from "framer-motion";
 
-interface Outfit {
-  id: string;
-  name: string;
-  notes?: string;
-  items: {
-    id: string;
-    position: number;
-    item: {
-      id: string;
-      name: string;
-      imageUrl: string;
-      category: string;
-    };
-  }[];
-}
-
 export default function Outfits() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const { data: outfits, isLoading, isError } = useQuery<Outfit[]>({
+  const { data: outfits, isLoading, isError } = useQuery<OutfitWithItems[]>({
     queryKey: ['outfits'],
     queryFn: api.outfits.list
   });
@@ -38,8 +23,13 @@ export default function Outfits() {
       toast({ title: "Outfit deleted", description: "The outfit has been removed." });
       queryClient.invalidateQueries({ queryKey: ['outfits'] });
     },
-    onError: () => {
-      toast({ title: "Delete failed", description: "Please try again.", variant: "destructive" });
+    onError: (error) => {
+      const details = getApiErrorDetailMessages(error);
+      toast({
+        title: getApiErrorMessage(error, "Delete failed"),
+        description: details.length ? details.join(" • ") : "Please try again.",
+        variant: "destructive",
+      });
     }
   });
 

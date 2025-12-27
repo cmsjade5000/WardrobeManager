@@ -56,6 +56,34 @@ export interface Outfit {
   createdAt: string;
 }
 
+export interface OutfitItemDetail {
+  id: string;
+  position: number;
+  item: {
+    id: string;
+    name: string;
+    imageUrl: string;
+    category: string;
+  } | null;
+}
+
+export interface OutfitWithItems {
+  id: string;
+  name: string;
+  notes?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  items: OutfitItemDetail[];
+}
+
+export interface OutfitRecord {
+  id: string;
+  name: string;
+  notes?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 // Initial Mock Data
 export const INITIAL_TAGS: Tag[] = [
   { id: '1', name: 'Casual' },
