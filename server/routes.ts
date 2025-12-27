@@ -89,6 +89,10 @@ const csvDefaultsSchema = z.object({
   notes: z.string().trim().optional(),
 });
 
+const tagSchema = z.object({
+  name: z.string().trim().min(1),
+});
+
 const coerceString = (value: unknown): string => {
   if (typeof value !== "string") {
     return "";
@@ -1224,7 +1228,11 @@ export async function registerRoutes(
 
   app.post("/api/tags", async (req, res) => {
     try {
-      const { name } = req.body;
+      const parsed = tagSchema.safeParse({ name: coerceString(req.body.name) });
+      if (!parsed.success) {
+        return sendValidationError(res, parsed.error);
+      }
+      const { name } = parsed.data;
       const tag = await prismaClient.tag.create({ data: { name } });
       res.json(tag);
     } catch (_error) {
@@ -1234,7 +1242,11 @@ export async function registerRoutes(
 
   app.put("/api/tags/:id", async (req, res) => {
     try {
-      const { name } = req.body;
+      const parsed = tagSchema.safeParse({ name: coerceString(req.body.name) });
+      if (!parsed.success) {
+        return sendValidationError(res, parsed.error);
+      }
+      const { name } = parsed.data;
       const tag = await prismaClient.tag.update({
         where: { id: req.params.id },
         data: { name }

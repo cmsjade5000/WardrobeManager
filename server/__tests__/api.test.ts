@@ -131,6 +131,21 @@ describe("API routes", () => {
     expect(badOutfitRes.status).toBe(400);
   });
 
+  it("trims and validates tag names", async () => {
+    const emptyRes = await request(app).post("/api/tags").send({ name: "   " });
+    expect(emptyRes.status).toBe(400);
+
+    const trimmedName = `Trim Tag ${Date.now()}`;
+    const tagRes = await request(app).post("/api/tags").send({ name: `  ${trimmedName}  ` });
+    expect(tagRes.status).toBe(200);
+    expect(tagRes.body.name).toBe(trimmedName);
+
+    const badUpdateRes = await request(app).put(`/api/tags/${tagRes.body.id}`).send({ name: "" });
+    expect(badUpdateRes.status).toBe(400);
+
+    await request(app).delete(`/api/tags/${tagRes.body.id}`);
+  });
+
   it("processes bulk imports", async () => {
     const tmpDir = path.resolve("uploads", `import-test-${Date.now()}`);
     fs.mkdirSync(tmpDir, { recursive: true });
