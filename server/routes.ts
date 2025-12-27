@@ -6,6 +6,8 @@ import fs from "fs";
 import { PrismaClient } from "@prisma/client";
 import sharp from "sharp";
 import { randomUUID } from "crypto";
+import AdmZip from "adm-zip";
+import Papa, { type ParseError, type ParseResult } from "papaparse";
 
 export const prisma = new PrismaClient();
 
@@ -178,6 +180,26 @@ const upload = multer({
   },
 });
 
+const importUpload = multer({
+  storage: storage,
+  limits: { fileSize: 100 * 1024 * 1024 }, // 100MB
+  fileFilter: (_req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    const allowedMimes = new Set([
+      "text/csv",
+      "application/vnd.ms-excel",
+      "application/zip",
+      "application/x-zip-compressed",
+    ]);
+    const allowedExts = new Set([".csv", ".zip"]);
+    if (allowedMimes.has(file.mimetype) || allowedExts.has(ext)) {
+      cb(null, true);
+    } else {
+      cb(new Error("Invalid file type. Only CSV and ZIP are allowed."));
+    }
+  },
+});
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express,
@@ -185,6 +207,17 @@ export async function registerRoutes(
 ): Promise<Server> {
   type ImportJobStatus = "queued" | "processing" | "completed";
   type ImportItemStatus = "queued" | "processing" | "completed" | "failed";
+  type ImportItemPayload = {
+    name: string;
+    type: string;
+    category: string;
+    color: string;
+    brand?: string;
+    size?: string;
+    material?: string;
+    notes?: string;
+    tags: string[];
+  };
   type ImportJobItem = {
     id: string;
     filename: string;
@@ -192,7 +225,8 @@ export async function registerRoutes(
     itemId?: string;
     imageUrl?: string;
     error?: string;
-    filePath: string;
+    filePath?: string;
+    payload: ImportItemPayload;
   };
   type ImportJob = {
     id: string;
@@ -220,29 +254,81 @@ export async function registerRoutes(
 
   const serializeImportJob = (job: ImportJob) => ({
     ...job,
-    items: job.items.map(({ filePath: _filePath, ...item }) => item),
+    items: job.items.map(({ filePath: _filePath, payload: _payload, ...item }) => item),
   });
+
+  const resolveTagIds = async (names: string[], cache: Map<string, string>) => {
+    const trimmed = names.map((name) => name.trim()).filter(Boolean);
+    if (!trimmed.length) {
+      return [];
+    }
+
+    const uuidLike = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const idCandidates = Array.from(new Set(trimmed.filter((name) => uuidLike.test(name))));
+    if (idCandidates.length) {
+      const byId = await prismaClient.tag.findMany({
+        where: { id: { in: idCandidates } },
+      });
+      for (const tag of byId) {
+        cache.set(tag.id, tag.id);
+      }
+    }
+
+    const missing = Array.from(
+      new Set(trimmed.filter((name) => !cache.has(name) && !uuidLike.test(name)))
+    );
+    if (missing.length) {
+      const existing = await prismaClient.tag.findMany({
+        where: { name: { in: missing } },
+      });
+      for (const tag of existing) {
+        cache.set(tag.name, tag.id);
+      }
+      const existingNames = new Set(existing.map((tag) => tag.name));
+      for (const name of missing) {
+        if (!existingNames.has(name)) {
+          const created = await prismaClient.tag.create({ data: { name } });
+          cache.set(name, created.id);
+        }
+      }
+    }
+
+    return trimmed
+      .map((name) => cache.get(name))
+      .filter((id): id is string => Boolean(id));
+  };
 
   const processImportJob = async (job: ImportJob) => {
     job.status = "processing";
+    const tagCache = new Map<string, string>();
     for (const item of job.items) {
+      if (item.status === "failed") {
+        continue;
+      }
+      if (!item.filePath) {
+        item.status = "failed";
+        item.error = "Missing file for import.";
+        job.failed += 1;
+        continue;
+      }
       item.status = "processing";
       try {
         const imageUrl = await processUploadedImage(item.filePath);
+        const tagIds = await resolveTagIds(item.payload.tags, tagCache);
         const created = await prismaClient.item.create({
           data: {
-            name: item.filename,
-            type: job.defaults.type,
-            category: job.defaults.category,
-            color: job.defaults.color,
+            name: item.payload.name,
+            type: item.payload.type,
+            category: item.payload.category,
+            color: item.payload.color,
             imageUrl,
-            brand: job.defaults.brand,
-            size: job.defaults.size,
-            material: job.defaults.material,
-            notes: job.defaults.notes,
-            tags: job.defaults.tags.length
+            brand: item.payload.brand,
+            size: item.payload.size,
+            material: item.payload.material,
+            notes: item.payload.notes,
+            tags: tagIds.length
               ? {
-                  create: job.defaults.tags.map((tagId) => ({
+                  create: tagIds.map((tagId) => ({
                     tag: { connect: { id: tagId } },
                   })),
                 }
@@ -576,6 +662,17 @@ export async function registerRoutes(
         }
       }
 
+      const defaults = {
+        type,
+        category,
+        color,
+        brand,
+        size,
+        material,
+        notes,
+        tags: tagIds,
+      };
+
       const job: ImportJob = {
         id: randomUUID(),
         status: "queued",
@@ -584,20 +681,22 @@ export async function registerRoutes(
         failed: 0,
         items: files.map((file) => ({
           id: randomUUID(),
-          filename: path.parse(file.originalname).name || "Imported item",
+          filename: file.originalname,
           status: "queued",
           filePath: file.path,
+          payload: {
+            name: path.parse(file.originalname).name || "Imported item",
+            type: defaults.type,
+            category: defaults.category,
+            color: defaults.color,
+            brand: defaults.brand,
+            size: defaults.size,
+            material: defaults.material,
+            notes: defaults.notes,
+            tags: defaults.tags,
+          },
         })),
-        defaults: {
-          type,
-          category,
-          color,
-          brand,
-          size,
-          material,
-          notes,
-          tags: tagIds,
-        },
+        defaults,
         createdAt: new Date().toISOString(),
       };
 
@@ -608,6 +707,184 @@ export async function registerRoutes(
       return res.status(500).json({ error: "Failed to start import" });
     }
   });
+
+  app.post(
+    "/api/imports/csv",
+    importUpload.fields([
+      { name: "csv", maxCount: 1 },
+      { name: "zip", maxCount: 1 },
+    ]),
+    async (req, res) => {
+      const fileMap = req.files as Record<string, Express.Multer.File[]>;
+      const csvFile = fileMap?.csv?.[0];
+      const zipFile = fileMap?.zip?.[0];
+
+      if (!csvFile || !zipFile) {
+        return res.status(400).json({ error: "CSV and ZIP files are required" });
+      }
+
+      const { type, category, color, brand, size, material, notes, tags } = req.body;
+      const defaults = {
+        type: typeof type === "string" ? type.trim() : "",
+        category: typeof category === "string" ? category.trim() : "",
+        color: typeof color === "string" ? color.trim() : "",
+        brand: typeof brand === "string" ? brand.trim() : undefined,
+        size: typeof size === "string" ? size.trim() : undefined,
+        material: typeof material === "string" ? material.trim() : undefined,
+        notes: typeof notes === "string" ? notes.trim() : undefined,
+        tags: [] as string[],
+      };
+
+      if (tags) {
+        if (Array.isArray(tags)) defaults.tags = tags;
+        else if (typeof tags === "string") {
+          try {
+            if (tags.startsWith("[")) defaults.tags = JSON.parse(tags);
+            else defaults.tags = [tags];
+          } catch {
+            defaults.tags = [tags];
+          }
+        }
+      }
+
+      try {
+        const csvContent = await fs.promises.readFile(csvFile.path, "utf8");
+        const parsed: ParseResult<Record<string, string>> = Papa.parse(csvContent, {
+          header: true,
+          skipEmptyLines: true,
+          transformHeader: (header: string) => header.trim().toLowerCase(),
+        });
+
+        if (parsed.errors.length) {
+          return res.status(400).json({
+            error: "CSV parse failed",
+            details: parsed.errors.map((err: ParseError) => err.message),
+          });
+        }
+
+        const rows = parsed.data.filter((row: Record<string, string>) => Object.keys(row).length > 0);
+        if (!rows.length) {
+          return res.status(400).json({ error: "CSV contains no data rows" });
+        }
+
+        const zip = new AdmZip(zipFile.path);
+        const entries = zip.getEntries().filter((entry: AdmZip.IZipEntry) => !entry.isDirectory);
+        if (!entries.length) {
+          return res.status(400).json({ error: "ZIP contains no files" });
+        }
+
+        const entryByName = new Map<string, AdmZip.IZipEntry>();
+        const entryByBase = new Map<string, AdmZip.IZipEntry>();
+        for (const entry of entries) {
+          const entryName = path.basename(entry.entryName);
+          const lowerName = entryName.toLowerCase();
+          if (!entryByName.has(lowerName)) {
+            entryByName.set(lowerName, entry);
+          }
+          const baseName = path.parse(entryName).name.toLowerCase();
+          if (!entryByBase.has(baseName)) {
+            entryByBase.set(baseName, entry);
+          }
+        }
+
+        if (!fs.existsSync("uploads")) {
+          fs.mkdirSync("uploads");
+        }
+
+        const jobId = randomUUID();
+        let failed = 0;
+        const items: ImportJobItem[] = [];
+
+        for (let index = 0; index < rows.length; index += 1) {
+          const row = rows[index];
+          const filename = (row.filename || row.file || row.image || "").trim();
+          const displayName =
+            (row.name || "").trim() ||
+            (filename ? path.parse(filename).name : "") ||
+            `Imported item ${index + 1}`;
+          const itemType = (row.type || "").trim() || defaults.type;
+          const itemCategory = (row.category || "").trim() || defaults.category;
+          const itemColor = (row.color || "").trim() || defaults.color;
+          const itemBrand = (row.brand || "").trim() || defaults.brand;
+          const itemSize = (row.size || "").trim() || defaults.size;
+          const itemMaterial = (row.material || "").trim() || defaults.material;
+          const itemNotes = (row.notes || "").trim() || defaults.notes;
+          const itemTags = (row.tags || "").trim()
+            ? row.tags.split(",").map((tag: string) => tag.trim()).filter(Boolean)
+            : defaults.tags;
+
+          let status: ImportItemStatus = "queued";
+          let error: string | undefined;
+          let filePath: string | undefined;
+
+          if (!filename) {
+            status = "failed";
+            error = "Missing filename in CSV.";
+            failed += 1;
+          } else if (!itemType || !itemCategory || !itemColor) {
+            status = "failed";
+            error = "Missing type, category, or color for this row.";
+            failed += 1;
+          } else {
+            const match =
+              entryByName.get(filename.toLowerCase()) ||
+              entryByBase.get(path.parse(filename).name.toLowerCase());
+            if (!match) {
+              status = "failed";
+              error = "File not found in ZIP.";
+              failed += 1;
+            } else {
+              const buffer = match.getData();
+              const ext = path.extname(match.entryName) || ".jpg";
+              const outputFilename = `import-${jobId}-${index}${ext.toLowerCase()}`;
+              const outputPath = path.join("uploads", outputFilename);
+              await fs.promises.writeFile(outputPath, buffer);
+              filePath = outputPath;
+            }
+          }
+
+          items.push({
+            id: randomUUID(),
+            filename: filename || displayName,
+            status,
+            error,
+            filePath,
+            payload: {
+              name: displayName,
+              type: itemType,
+              category: itemCategory,
+              color: itemColor,
+              brand: itemBrand,
+              size: itemSize,
+              material: itemMaterial,
+              notes: itemNotes,
+              tags: itemTags,
+            },
+          });
+        }
+
+        const job: ImportJob = {
+          id: jobId,
+          status: "queued",
+          total: items.length,
+          completed: 0,
+          failed,
+          items,
+          defaults,
+          createdAt: new Date().toISOString(),
+        };
+
+        enqueueImportJob(job);
+        return res.json(serializeImportJob(job));
+      } catch (error) {
+        console.error("CSV import error:", error);
+        return res.status(500).json({ error: "Failed to start CSV import" });
+      } finally {
+        await fs.promises.rm(csvFile.path, { force: true });
+        await fs.promises.rm(zipFile.path, { force: true });
+      }
+    }
+  );
 
   app.get("/api/imports/:id", (req, res) => {
     const job = importJobs.get(req.params.id);

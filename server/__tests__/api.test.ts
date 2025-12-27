@@ -5,6 +5,7 @@ import { createServer } from "http";
 import { PrismaClient } from "@prisma/client";
 import request from "supertest";
 import sharp from "sharp";
+import AdmZip from "adm-zip";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 describe("API routes", () => {
@@ -146,6 +147,77 @@ describe("API routes", () => {
       .field("color", "Red")
       .attach("images", fileOne)
       .attach("images", fileTwo);
+
+    expect(importRes.status).toBe(200);
+    expect(importRes.body.total).toBe(2);
+    const jobId = importRes.body.id;
+
+    let job = importRes.body;
+    for (let i = 0; i < 12; i += 1) {
+      if (job.status === "completed") {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      const statusRes = await request(app).get(`/api/imports/${jobId}`);
+      expect(statusRes.status).toBe(200);
+      job = statusRes.body;
+    }
+
+    expect(job.status).toBe("completed");
+    expect(job.completed + job.failed).toBe(job.total);
+    expect(job.items.length).toBe(2);
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("processes CSV + ZIP imports", async () => {
+    const tmpDir = path.resolve("uploads", `import-csv-${Date.now()}`);
+    fs.mkdirSync(tmpDir, { recursive: true });
+    const fileOne = path.join(tmpDir, "csv-top.png");
+    const fileTwo = path.join(tmpDir, "csv-bottom.png");
+
+    await sharp({
+      create: {
+        width: 320,
+        height: 420,
+        channels: 4,
+        background: { r: 180, g: 180, b: 180, alpha: 1 },
+      },
+    })
+      .png()
+      .toFile(fileOne);
+    await sharp({
+      create: {
+        width: 320,
+        height: 420,
+        channels: 4,
+        background: { r: 40, g: 140, b: 90, alpha: 1 },
+      },
+    })
+      .png()
+      .toFile(fileTwo);
+
+    const zipPath = path.join(tmpDir, "import.zip");
+    const zip = new AdmZip();
+    zip.addLocalFile(fileOne);
+    zip.addLocalFile(fileTwo);
+    zip.writeZip(zipPath);
+
+    const csvPath = path.join(tmpDir, "import.csv");
+    const csvRows = [
+      "filename,name,type,category,color",
+      "csv-top.png,CSV Tee,TOP,T-Shirt,White",
+      "csv-bottom.png,CSV Pants,,Pants,Black",
+    ];
+    fs.writeFileSync(csvPath, csvRows.join("\n"));
+
+    const importRes = await request(app)
+      .post("/api/imports/csv")
+      .field("type", "BOTTOM")
+      .field("category", "Bottoms")
+      .field("color", "Black")
+      .attach("csv", csvPath)
+      .attach("zip", zipPath);
 
     expect(importRes.status).toBe(200);
     expect(importRes.body.total).toBe(2);

@@ -138,6 +138,27 @@ export const api = {
       if (!res.ok) throw new Error("Failed to start import");
       return res.json();
     },
+    createCsv: async (payload: {
+      csv: File;
+      zip: File;
+      type?: string;
+      category?: string;
+      color?: string;
+    }) => {
+      const formData = new FormData();
+      formData.append("csv", payload.csv);
+      formData.append("zip", payload.zip);
+      if (payload.type) formData.append("type", payload.type);
+      if (payload.category) formData.append("category", payload.category);
+      if (payload.color) formData.append("color", payload.color);
+
+      const res = await fetch("/api/imports/csv", {
+        method: "POST",
+        body: formData,
+      });
+      if (!res.ok) throw new Error("Failed to start CSV import");
+      return res.json();
+    },
     status: async (id: string): Promise<ImportJob> => {
       const res = await fetch(`/api/imports/${id}`);
       if (!res.ok) throw new Error("Failed to fetch import status");

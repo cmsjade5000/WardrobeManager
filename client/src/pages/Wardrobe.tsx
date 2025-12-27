@@ -7,6 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Link } from "wouter";
 import { Plus, Search, Shirt, Loader2, Upload, Check, X } from "lucide-react";
 import { motion } from "framer-motion";
@@ -51,6 +52,8 @@ export default function Wardrobe() {
   const [bulkJobId, setBulkJobId] = useState<string | null>(null);
   const [bulkNotified, setBulkNotified] = useState(false);
   const [bulkConverting, setBulkConverting] = useState(false);
+  const [csvFile, setCsvFile] = useState<File | null>(null);
+  const [zipFile, setZipFile] = useState<File | null>(null);
 
   const { data: items, isLoading, isError } = useQuery<Item[]>({
     queryKey: ['items', search, typeFilter, tagFilter, colorFilter],
@@ -79,6 +82,15 @@ export default function Wardrobe() {
     },
   });
 
+  const handleImportStarted = (data: ImportJob) => {
+    setBulkJobId(data.id);
+    setBulkNotified(false);
+    toast({
+      title: "Import started",
+      description: `Processing ${data.total} items.`,
+    });
+  };
+
   const bulkImportMutation = useMutation({
     mutationFn: (payload: {
       files: File[];
@@ -86,17 +98,20 @@ export default function Wardrobe() {
       category: string;
       color: string;
     }) => api.imports.create(payload),
-    onSuccess: (data: ImportJob) => {
-      setBulkJobId(data.id);
-      setBulkNotified(false);
-      toast({
-        title: "Import started",
-        description: `Processing ${data.total} items.`,
-      });
-    },
+    onSuccess: handleImportStarted,
     onError: (error) => {
       const message = error instanceof Error ? error.message : "Failed to start import.";
       toast({ title: "Import failed", description: message, variant: "destructive" });
+    },
+  });
+
+  const csvImportMutation = useMutation({
+    mutationFn: (payload: { csv: File; zip: File; type?: string; category?: string; color?: string }) =>
+      api.imports.createCsv(payload),
+    onSuccess: handleImportStarted,
+    onError: (error) => {
+      const message = error instanceof Error ? error.message : "Failed to start import.";
+      toast({ title: "CSV import failed", description: message, variant: "destructive" });
     },
   });
 
@@ -195,6 +210,25 @@ export default function Wardrobe() {
     });
   };
 
+  const handleCsvImport = () => {
+    if (!csvFile || !zipFile) {
+      toast({
+        title: "Add CSV and ZIP",
+        description: "Select both a CSV file and a ZIP of images.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    csvImportMutation.mutate({
+      csv: csvFile,
+      zip: zipFile,
+      type: bulkType || undefined,
+      category: bulkCategory.trim() || undefined,
+      color: bulkColor.trim() || undefined,
+    });
+  };
+
   const handleAiSubmit = () => {
     const trimmedPrompt = aiPrompt.trim();
     if (!trimmedPrompt) {
@@ -238,78 +272,199 @@ export default function Wardrobe() {
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-5">
-            <div className="grid gap-2">
-              <Label htmlFor="bulk-images">Images</Label>
-              <Input
-                id="bulk-images"
-                type="file"
-                accept="image/jpeg,image/png,image/webp,image/heic,image/heif,image/heic-sequence,image/heif-sequence"
-                multiple
-                onChange={handleBulkFiles}
-                disabled={bulkConverting}
-              />
-              {bulkConverting && (
-                <p className="text-xs text-muted-foreground flex items-center gap-2">
-                  <Loader2 className="h-3 w-3 animate-spin" /> Converting HEIC images...
-                </p>
-              )}
-              {bulkFiles.length > 0 && (
-                <div className="rounded-lg border bg-secondary/30 p-3 max-h-40 overflow-y-auto space-y-2">
-                  {bulkFiles.map((file, index) => (
-                    <div key={`${file.name}-${index}`} className="flex items-center justify-between text-sm">
-                      <span className="truncate">{file.name}</span>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7"
-                        onClick={() => {
-                          setBulkFiles((prev) => prev.filter((_, i) => i !== index));
-                        }}
-                      >
-                        <X className="h-4 w-4" />
-                      </Button>
+            <Tabs defaultValue="images">
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="images">Images</TabsTrigger>
+                <TabsTrigger value="csv">CSV + ZIP</TabsTrigger>
+              </TabsList>
+              <TabsContent value="images" className="mt-4">
+                <div className="grid gap-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor="bulk-images">Images</Label>
+                    <Input
+                      id="bulk-images"
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp,image/heic,image/heif,image/heic-sequence,image/heif-sequence"
+                      multiple
+                      onChange={handleBulkFiles}
+                      disabled={bulkConverting}
+                    />
+                    {bulkConverting && (
+                      <p className="text-xs text-muted-foreground flex items-center gap-2">
+                        <Loader2 className="h-3 w-3 animate-spin" /> Converting HEIC images...
+                      </p>
+                    )}
+                    {bulkFiles.length > 0 && (
+                      <div className="rounded-lg border bg-secondary/30 p-3 max-h-40 overflow-y-auto space-y-2">
+                        {bulkFiles.map((file, index) => (
+                          <div key={`${file.name}-${index}`} className="flex items-center justify-between text-sm">
+                            <span className="truncate">{file.name}</span>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7"
+                              onClick={() => {
+                                setBulkFiles((prev) => prev.filter((_, i) => i !== index));
+                              }}
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div className="grid gap-4 sm:grid-cols-3">
+                    <div className="grid gap-2">
+                      <Label>Type</Label>
+                      <Select value={bulkType} onValueChange={setBulkType}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Type" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="TOP">Top</SelectItem>
+                          <SelectItem value="BOTTOM">Bottom</SelectItem>
+                          <SelectItem value="OUTERWEAR">Outerwear</SelectItem>
+                          <SelectItem value="ONE_PIECE">One Piece</SelectItem>
+                          <SelectItem value="SHOES">Shoes</SelectItem>
+                          <SelectItem value="ACCESSORY">Accessory</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
-                  ))}
+                    <div className="grid gap-2">
+                      <Label>Category</Label>
+                      <Input value={bulkCategory} onChange={(e) => setBulkCategory(e.target.value)} />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label>Color</Label>
+                      <Select value={bulkColor} onValueChange={setBulkColor}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Color" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {COLORS.filter((color) => color.value !== "ALL").map((color) => (
+                            <SelectItem key={color.value} value={color.value}>
+                              {color.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="flex flex-col sm:flex-row gap-3 sm:justify-end">
+                    <Button
+                      variant="outline"
+                      onClick={() => setBulkOpen(false)}
+                      disabled={bulkImportMutation.isPending}
+                    >
+                      Close
+                    </Button>
+                    <Button
+                      onClick={handleBulkImport}
+                      disabled={
+                        bulkImportMutation.isPending ||
+                        bulkConverting ||
+                        !bulkFiles.length ||
+                        !bulkCategory.trim() ||
+                        !bulkColor.trim()
+                      }
+                    >
+                      {bulkImportMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                      Start Import
+                    </Button>
+                  </div>
                 </div>
-              )}
-            </div>
-            <div className="grid gap-4 sm:grid-cols-3">
-              <div className="grid gap-2">
-                <Label>Type</Label>
-                <Select value={bulkType} onValueChange={setBulkType}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="TOP">Top</SelectItem>
-                    <SelectItem value="BOTTOM">Bottom</SelectItem>
-                    <SelectItem value="OUTERWEAR">Outerwear</SelectItem>
-                    <SelectItem value="ONE_PIECE">One Piece</SelectItem>
-                    <SelectItem value="SHOES">Shoes</SelectItem>
-                    <SelectItem value="ACCESSORY">Accessory</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="grid gap-2">
-                <Label>Category</Label>
-                <Input value={bulkCategory} onChange={(e) => setBulkCategory(e.target.value)} />
-              </div>
-              <div className="grid gap-2">
-                <Label>Color</Label>
-                <Select value={bulkColor} onValueChange={setBulkColor}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Color" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {COLORS.filter((color) => color.value !== "ALL").map((color) => (
-                      <SelectItem key={color.value} value={color.value}>
-                        {color.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
+              </TabsContent>
+              <TabsContent value="csv" className="mt-4">
+                <div className="grid gap-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor="csv-file">CSV file</Label>
+                    <Input
+                      id="csv-file"
+                      type="file"
+                      accept=".csv,text/csv"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0] ?? null;
+                        setCsvFile(file);
+                        e.target.value = "";
+                      }}
+                    />
+                    {csvFile && <p className="text-xs text-muted-foreground">{csvFile.name}</p>}
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="zip-file">ZIP of images</Label>
+                    <Input
+                      id="zip-file"
+                      type="file"
+                      accept=".zip,application/zip,application/x-zip-compressed"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0] ?? null;
+                        setZipFile(file);
+                        e.target.value = "";
+                      }}
+                    />
+                    {zipFile && <p className="text-xs text-muted-foreground">{zipFile.name}</p>}
+                  </div>
+                  <div className="rounded-lg border bg-secondary/20 p-3 text-xs text-muted-foreground">
+                    CSV columns: filename, name, type, category, color, brand, size, material, notes, tags
+                    (comma-separated).
+                  </div>
+                  <div className="grid gap-4 sm:grid-cols-3">
+                    <div className="grid gap-2">
+                      <Label>Default type</Label>
+                      <Select value={bulkType} onValueChange={setBulkType}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Type" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="TOP">Top</SelectItem>
+                          <SelectItem value="BOTTOM">Bottom</SelectItem>
+                          <SelectItem value="OUTERWEAR">Outerwear</SelectItem>
+                          <SelectItem value="ONE_PIECE">One Piece</SelectItem>
+                          <SelectItem value="SHOES">Shoes</SelectItem>
+                          <SelectItem value="ACCESSORY">Accessory</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="grid gap-2">
+                      <Label>Default category</Label>
+                      <Input value={bulkCategory} onChange={(e) => setBulkCategory(e.target.value)} />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label>Default color</Label>
+                      <Select value={bulkColor} onValueChange={setBulkColor}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Color" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {COLORS.filter((color) => color.value !== "ALL").map((color) => (
+                            <SelectItem key={color.value} value={color.value}>
+                              {color.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="flex flex-col sm:flex-row gap-3 sm:justify-end">
+                    <Button
+                      variant="outline"
+                      onClick={() => setBulkOpen(false)}
+                      disabled={csvImportMutation.isPending}
+                    >
+                      Close
+                    </Button>
+                    <Button
+                      onClick={handleCsvImport}
+                      disabled={csvImportMutation.isPending || !csvFile || !zipFile}
+                    >
+                      {csvImportMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                      Start CSV Import
+                    </Button>
+                  </div>
+                </div>
+              </TabsContent>
+            </Tabs>
             {importJob && (
               <div className="rounded-lg border bg-secondary/20 p-4 space-y-3">
                 <div className="flex items-center justify-between text-sm">
@@ -343,28 +498,6 @@ export default function Wardrobe() {
                 </div>
               </div>
             )}
-            <div className="flex flex-col sm:flex-row gap-3 sm:justify-end">
-              <Button
-                variant="outline"
-                onClick={() => setBulkOpen(false)}
-                disabled={bulkImportMutation.isPending}
-              >
-                Close
-              </Button>
-              <Button
-                onClick={handleBulkImport}
-                disabled={
-                  bulkImportMutation.isPending ||
-                  bulkConverting ||
-                  !bulkFiles.length ||
-                  !bulkCategory.trim() ||
-                  !bulkColor.trim()
-                }
-              >
-                {bulkImportMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Start Import
-              </Button>
-            </div>
           </div>
         </DialogContent>
       </Dialog>
