@@ -678,15 +678,19 @@ export async function registerRoutes(
     const { type, category, tag, search, color } = req.query;
 
     const where: any = {};
+    const databaseUrl = process.env.DATABASE_URL ?? "";
+    const isSqlite = databaseUrl === "" || databaseUrl.startsWith("file:") || databaseUrl.startsWith("sqlite:");
+    const textFilter = (value: string) =>
+      isSqlite ? { contains: value } : { contains: value, mode: "insensitive" as const };
 
     if (type && type !== 'ALL') where.type = String(type);
-    if (category) where.category = { contains: String(category) };
-    if (color && color !== 'ALL') where.color = { contains: String(color) };
+    if (category) where.category = textFilter(String(category));
+    if (color && color !== 'ALL') where.color = textFilter(String(color));
     if (search) {
       where.OR = [
-        { name: { contains: String(search) } },
-        { category: { contains: String(search) } },
-        { brand: { contains: String(search) } }
+        { name: textFilter(String(search)) },
+        { category: textFilter(String(search)) },
+        { brand: textFilter(String(search)) }
       ];
     }
     

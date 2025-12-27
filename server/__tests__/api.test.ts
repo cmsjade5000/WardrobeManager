@@ -94,6 +94,10 @@ describe("API routes", () => {
     expect(getItemRes.status).toBe(200);
     expect(getItemRes.body.id).toBe(itemId);
 
+    const searchRes = await request(app).get(`/api/items?search=${encodeURIComponent("test item")}`);
+    expect(searchRes.status).toBe(200);
+    expect(searchRes.body.some((item: { id: string }) => item.id === itemId)).toBe(true);
+
     const updateTagsRes = await request(app)
       .put(`/api/items/${itemId}`)
       .field("tags", "[]");
