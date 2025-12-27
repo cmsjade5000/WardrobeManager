@@ -639,13 +639,16 @@ export async function registerRoutes(
       }
 
       // Parse tags if provided
+      const tagsProvided = typeof tags !== "undefined";
       let tagIds: string[] = [];
-      if (tags) {
+      if (tagsProvided) {
         try {
-          if (tags.startsWith('[')) tagIds = JSON.parse(tags);
-          else tagIds = [tags];
+          if (tags.startsWith("[")) tagIds = JSON.parse(tags);
+          else if (tags) tagIds = [tags];
         } catch {
-          tagIds = [tags];
+          if (tags) {
+            tagIds = [tags];
+          }
         }
       }
 
@@ -660,8 +663,8 @@ export async function registerRoutes(
       if (material !== undefined) updateData.material = material;
       if (notes !== undefined) updateData.notes = notes;
       
-      // Update with tags if provided
-      if (tagIds.length > 0) {
+      // Update with tags if provided (empty array clears all tags)
+      if (tagsProvided) {
         updateData.tags = {
           deleteMany: {},
           create: tagIds.map((tagId: string) => ({

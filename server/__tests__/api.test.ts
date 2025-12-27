@@ -94,6 +94,12 @@ describe("API routes", () => {
     expect(getItemRes.status).toBe(200);
     expect(getItemRes.body.id).toBe(itemId);
 
+    const updateTagsRes = await request(app)
+      .put(`/api/items/${itemId}`)
+      .field("tags", "[]");
+    expect(updateTagsRes.status).toBe(200);
+    expect(updateTagsRes.body.tags).toEqual([]);
+
     const outfitName = `Test Outfit ${Date.now()}`;
     const outfitRes = await request(app).post("/api/outfits").send({
       name: outfitName,
