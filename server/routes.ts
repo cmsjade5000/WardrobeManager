@@ -770,6 +770,13 @@ export async function registerRoutes(
       const { tags } = req.body;
       let imageUrl = imageUrlInput;
 
+      if (!req.file && !imageUrl) {
+        return res.status(400).json({
+          error: "Validation failed",
+          details: { imageUrl: ["Image file or URL is required."] },
+        });
+      }
+
       if (req.file) {
         imageUrl = await processUploadedImage(req.file.path);
       }

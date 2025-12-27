@@ -127,6 +127,14 @@ describe("API routes", () => {
       .field("color", "Blue");
     expect(badItemRes.status).toBe(400);
 
+    const missingImageRes = await request(app)
+      .post("/api/items")
+      .field("name", "Missing Image")
+      .field("type", "TOP")
+      .field("category", "Shirt")
+      .field("color", "Blue");
+    expect(missingImageRes.status).toBe(400);
+
     const badOutfitRes = await request(app).post("/api/outfits").send({ name: "No items" });
     expect(badOutfitRes.status).toBe(400);
   });
