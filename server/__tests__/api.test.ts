@@ -176,6 +176,55 @@ describe("API routes", () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
+  it("flags duplicate images in imports", async () => {
+    const tmpDir = path.resolve("uploads", `import-dup-${Date.now()}`);
+    fs.mkdirSync(tmpDir, { recursive: true });
+    const fileOne = path.join(tmpDir, "dup-one.png");
+    const fileTwo = path.join(tmpDir, "dup-two.png");
+
+    await sharp({
+      create: {
+        width: 300,
+        height: 400,
+        channels: 4,
+        background: { r: 90, g: 90, b: 90, alpha: 1 },
+      },
+    })
+      .png()
+      .toFile(fileOne);
+    fs.copyFileSync(fileOne, fileTwo);
+
+    const importRes = await request(app)
+      .post("/api/imports")
+      .field("type", "TOP")
+      .field("category", "Imported")
+      .field("color", "Gray")
+      .attach("images", fileOne)
+      .attach("images", fileTwo);
+
+    expect(importRes.status).toBe(200);
+    const jobId = importRes.body.id;
+
+    let job = importRes.body;
+    for (let i = 0; i < 12; i += 1) {
+      if (job.status === "completed") {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      const statusRes = await request(app).get(`/api/imports/${jobId}`);
+      expect(statusRes.status).toBe(200);
+      job = statusRes.body;
+    }
+
+    expect(job.status).toBe("completed");
+    expect(job.failed).toBe(1);
+    expect(job.completed).toBe(1);
+    const failedItem = job.items.find((item: any) => item.status === "failed");
+    expect(failedItem?.error).toBe("Duplicate image detected.");
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
   it("processes CSV + ZIP imports", async () => {
     const tmpDir = path.resolve("uploads", `import-csv-${Date.now()}`);
     fs.mkdirSync(tmpDir, { recursive: true });

@@ -5,7 +5,7 @@ import path from "path";
 import fs from "fs";
 import { PrismaClient } from "@prisma/client";
 import sharp from "sharp";
-import { randomUUID } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import AdmZip from "adm-zip";
 import Papa, { type ParseError, type ParseResult } from "papaparse";
 
@@ -22,6 +22,7 @@ const STANDARD_BRIGHTNESS = Number.parseFloat(process.env.IMAGE_BRIGHTNESS ?? ""
 const STANDARD_SATURATION = Number.parseFloat(process.env.IMAGE_SATURATION ?? "") || 1.05;
 const STANDARD_BG_TOP = process.env.IMAGE_BACKGROUND_TOP || "#f2f4f7";
 const STANDARD_BG_BOTTOM = process.env.IMAGE_BACKGROUND_BOTTOM || "#dfe5ec";
+const IMAGE_HASH_SIZE = Number.parseInt(process.env.IMAGE_HASH_SIZE ?? "", 10) || 64;
 
 type BackgroundRemovalModule = typeof import("@imgly/background-removal-node");
 let backgroundRemovalModule: BackgroundRemovalModule | null = null;
@@ -76,6 +77,19 @@ type StandardizeOptions = {
 
 const resolveUploadPath = (imageUrl: string): string => {
   return path.resolve(imageUrl.replace(/^\//, ""));
+};
+
+const computeImageHash = async (filePath: string): Promise<string> => {
+  const buffer = await sharp(filePath)
+    .rotate()
+    .resize(IMAGE_HASH_SIZE, IMAGE_HASH_SIZE, {
+      fit: "contain",
+      background: { r: 0, g: 0, b: 0, alpha: 0 },
+    })
+    .ensureAlpha()
+    .raw()
+    .toBuffer();
+  return createHash("sha256").update(buffer).digest("hex");
 };
 
 const standardizeImage = async (
@@ -298,9 +312,34 @@ export async function registerRoutes(
       .filter((id): id is string => Boolean(id));
   };
 
+  const buildExistingHashIndex = async (): Promise<Map<string, string>> => {
+    const map = new Map<string, string>();
+    const items = await prismaClient.item.findMany({
+      select: { id: true, imageUrl: true },
+    });
+    for (const item of items) {
+      if (!item.imageUrl?.startsWith("/uploads/")) {
+        continue;
+      }
+      const filePath = resolveUploadPath(item.imageUrl);
+      if (!fs.existsSync(filePath)) {
+        continue;
+      }
+      try {
+        const hash = await computeImageHash(filePath);
+        map.set(hash, item.id);
+      } catch (error) {
+        console.warn("Failed to hash existing image:", error);
+      }
+    }
+    return map;
+  };
+
   const processImportJob = async (job: ImportJob) => {
     job.status = "processing";
     const tagCache = new Map<string, string>();
+    const existingHashes = await buildExistingHashIndex();
+    const seenHashes = new Set(existingHashes.keys());
     for (const item of job.items) {
       if (item.status === "failed") {
         continue;
@@ -314,6 +353,22 @@ export async function registerRoutes(
       item.status = "processing";
       try {
         const imageUrl = await processUploadedImage(item.filePath);
+        let imageHash: string | null = null;
+        try {
+          if (imageUrl.startsWith("/uploads/")) {
+            imageHash = await computeImageHash(resolveUploadPath(imageUrl));
+          }
+        } catch (error) {
+          console.warn("Failed to hash import image:", error);
+        }
+
+        if (imageHash && seenHashes.has(imageHash)) {
+          item.status = "failed";
+          item.error = "Duplicate image detected.";
+          job.failed += 1;
+          continue;
+        }
+
         const tagIds = await resolveTagIds(item.payload.tags, tagCache);
         const created = await prismaClient.item.create({
           data: {
@@ -339,6 +394,9 @@ export async function registerRoutes(
         item.itemId = created.id;
         item.imageUrl = imageUrl;
         job.completed += 1;
+        if (imageHash) {
+          seenHashes.add(imageHash);
+        }
       } catch (error) {
         item.status = "failed";
         item.error = error instanceof Error ? error.message : "Unknown error";
