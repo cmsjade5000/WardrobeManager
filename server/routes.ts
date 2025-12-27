@@ -446,6 +446,14 @@ export async function registerRoutes(
   };
 
   const processImportJob = async (jobId: string) => {
+    const claimed = await prismaClient.importJob.updateMany({
+      where: { id: jobId, status: "queued" },
+      data: { status: "processing" },
+    });
+    if (claimed.count === 0) {
+      return;
+    }
+
     const job = await prismaClient.importJob.findUnique({
       where: { id: jobId },
       include: { items: true },
@@ -456,17 +464,13 @@ export async function registerRoutes(
 
     let completed = job.completed;
     let failed = job.failed;
-    await prismaClient.importJob.update({
-      where: { id: jobId },
-      data: { status: "processing" },
-    });
 
     const tagCache = new Map<string, string>();
     const existingHashes = await buildExistingHashIndex();
     const seenHashes = new Set(existingHashes.keys());
 
     for (const item of job.items) {
-      if (item.status === "failed") {
+      if (item.status === "completed" || item.status === "failed") {
         continue;
       }
 
