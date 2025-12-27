@@ -5,6 +5,7 @@ import path from "path";
 import fs from "fs";
 import { PrismaClient } from "@prisma/client";
 import sharp from "sharp";
+import { randomUUID } from "crypto";
 
 export const prisma = new PrismaClient();
 
@@ -182,6 +183,109 @@ export async function registerRoutes(
   app: Express,
   prismaClient: PrismaClient = prisma
 ): Promise<Server> {
+  type ImportJobStatus = "queued" | "processing" | "completed";
+  type ImportItemStatus = "queued" | "processing" | "completed" | "failed";
+  type ImportJobItem = {
+    id: string;
+    filename: string;
+    status: ImportItemStatus;
+    itemId?: string;
+    imageUrl?: string;
+    error?: string;
+    filePath: string;
+  };
+  type ImportJob = {
+    id: string;
+    status: ImportJobStatus;
+    total: number;
+    completed: number;
+    failed: number;
+    items: ImportJobItem[];
+    defaults: {
+      type: string;
+      category: string;
+      color: string;
+      brand?: string;
+      size?: string;
+      material?: string;
+      notes?: string;
+      tags: string[];
+    };
+    createdAt: string;
+  };
+
+  const importJobs = new Map<string, ImportJob>();
+  const importQueue: string[] = [];
+  let importQueueRunning = false;
+
+  const serializeImportJob = (job: ImportJob) => ({
+    ...job,
+    items: job.items.map(({ filePath: _filePath, ...item }) => item),
+  });
+
+  const processImportJob = async (job: ImportJob) => {
+    job.status = "processing";
+    for (const item of job.items) {
+      item.status = "processing";
+      try {
+        const imageUrl = await processUploadedImage(item.filePath);
+        const created = await prismaClient.item.create({
+          data: {
+            name: item.filename,
+            type: job.defaults.type,
+            category: job.defaults.category,
+            color: job.defaults.color,
+            imageUrl,
+            brand: job.defaults.brand,
+            size: job.defaults.size,
+            material: job.defaults.material,
+            notes: job.defaults.notes,
+            tags: job.defaults.tags.length
+              ? {
+                  create: job.defaults.tags.map((tagId) => ({
+                    tag: { connect: { id: tagId } },
+                  })),
+                }
+              : undefined,
+          },
+        });
+        item.status = "completed";
+        item.itemId = created.id;
+        item.imageUrl = imageUrl;
+        job.completed += 1;
+      } catch (error) {
+        item.status = "failed";
+        item.error = error instanceof Error ? error.message : "Unknown error";
+        job.failed += 1;
+      }
+    }
+    job.status = "completed";
+  };
+
+  const runImportQueue = async () => {
+    if (importQueueRunning) {
+      return;
+    }
+    importQueueRunning = true;
+    while (importQueue.length) {
+      const jobId = importQueue.shift();
+      if (!jobId) {
+        continue;
+      }
+      const job = importJobs.get(jobId);
+      if (!job) {
+        continue;
+      }
+      await processImportJob(job);
+    }
+    importQueueRunning = false;
+  };
+
+  const enqueueImportJob = (job: ImportJob) => {
+    importJobs.set(job.id, job);
+    importQueue.push(job.id);
+    void runImportQueue();
+  };
 
   // Health Check
   app.get("/api/health", (_req, res) => {
@@ -443,6 +547,74 @@ export async function registerRoutes(
     } catch (_error) {
       res.status(500).json({ error: "Failed to delete item" });
     }
+  });
+
+  // --- Imports ---
+
+  app.post("/api/imports", upload.array("images", 25), async (req, res) => {
+    try {
+      const files = Array.isArray(req.files) ? req.files : [];
+      const { type, category, color, brand, size, material, notes, tags } = req.body;
+
+      if (!files.length) {
+        return res.status(400).json({ error: "No images uploaded" });
+      }
+      if (!type || !category || !color) {
+        return res.status(400).json({ error: "Type, category, and color are required" });
+      }
+
+      let tagIds: string[] = [];
+      if (tags) {
+        if (Array.isArray(tags)) tagIds = tags;
+        else if (typeof tags === "string") {
+          try {
+            if (tags.startsWith("[")) tagIds = JSON.parse(tags);
+            else tagIds = [tags];
+          } catch {
+            tagIds = [tags];
+          }
+        }
+      }
+
+      const job: ImportJob = {
+        id: randomUUID(),
+        status: "queued",
+        total: files.length,
+        completed: 0,
+        failed: 0,
+        items: files.map((file) => ({
+          id: randomUUID(),
+          filename: path.parse(file.originalname).name || "Imported item",
+          status: "queued",
+          filePath: file.path,
+        })),
+        defaults: {
+          type,
+          category,
+          color,
+          brand,
+          size,
+          material,
+          notes,
+          tags: tagIds,
+        },
+        createdAt: new Date().toISOString(),
+      };
+
+      enqueueImportJob(job);
+      return res.json(serializeImportJob(job));
+    } catch (error) {
+      console.error("Create import job error:", error);
+      return res.status(500).json({ error: "Failed to start import" });
+    }
+  });
+
+  app.get("/api/imports/:id", (req, res) => {
+    const job = importJobs.get(req.params.id);
+    if (!job) {
+      return res.status(404).json({ error: "Import job not found" });
+    }
+    return res.json(serializeImportJob(job));
   });
 
   // --- Tags ---

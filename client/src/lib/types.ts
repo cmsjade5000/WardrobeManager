@@ -21,6 +21,28 @@ export interface Item {
   createdAt: string;
 }
 
+export type ImportItemStatus = "queued" | "processing" | "completed" | "failed";
+export type ImportJobStatus = "queued" | "processing" | "completed";
+
+export interface ImportJobItem {
+  id: string;
+  filename: string;
+  status: ImportItemStatus;
+  itemId?: string;
+  imageUrl?: string;
+  error?: string;
+}
+
+export interface ImportJob {
+  id: string;
+  status: ImportJobStatus;
+  total: number;
+  completed: number;
+  failed: number;
+  items: ImportJobItem[];
+  createdAt: string;
+}
+
 export interface OutfitItem {
   itemId: string;
   position: number; // For ordering

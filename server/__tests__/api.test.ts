@@ -4,8 +4,8 @@ import express from "express";
 import { createServer } from "http";
 import { PrismaClient } from "@prisma/client";
 import request from "supertest";
+import sharp from "sharp";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { registerRoutes } from "../routes";
 
 describe("API routes", () => {
   const app = express();
@@ -16,8 +16,13 @@ describe("API routes", () => {
   let itemId: string | null = null;
   let outfitId: string | null = null;
   let testPrisma: PrismaClient;
+  let registerRoutes: typeof import("../routes").registerRoutes;
 
   beforeAll(async () => {
+    process.env.BG_REMOVAL_ENABLED = "false";
+    process.env.IMAGE_CANVAS_WIDTH = "200";
+    process.env.IMAGE_CANVAS_HEIGHT = "300";
+
     fs.rmSync(testDbPath, { force: true });
     fs.copyFileSync(path.resolve("prisma", "dev.db"), testDbPath);
 
@@ -31,6 +36,7 @@ describe("API routes", () => {
 
     app.use(express.json());
     app.use(express.urlencoded({ extended: false }));
+    ({ registerRoutes } = await import("../routes"));
     await registerRoutes(server, app, testPrisma);
   });
 
@@ -104,5 +110,62 @@ describe("API routes", () => {
     const getOutfitRes = await request(app).get(`/api/outfits/${outfitId}`);
     expect(getOutfitRes.status).toBe(200);
     expect(getOutfitRes.body.id).toBe(outfitId);
+  });
+
+  it("processes bulk imports", async () => {
+    const tmpDir = path.resolve("uploads", `import-test-${Date.now()}`);
+    fs.mkdirSync(tmpDir, { recursive: true });
+    const fileOne = path.join(tmpDir, "import-one.png");
+    const fileTwo = path.join(tmpDir, "import-two.png");
+
+    await sharp({
+      create: {
+        width: 300,
+        height: 400,
+        channels: 4,
+        background: { r: 200, g: 60, b: 60, alpha: 1 },
+      },
+    })
+      .png()
+      .toFile(fileOne);
+    await sharp({
+      create: {
+        width: 300,
+        height: 400,
+        channels: 4,
+        background: { r: 40, g: 90, b: 180, alpha: 1 },
+      },
+    })
+      .png()
+      .toFile(fileTwo);
+
+    const importRes = await request(app)
+      .post("/api/imports")
+      .field("type", "TOP")
+      .field("category", "Imported")
+      .field("color", "Red")
+      .attach("images", fileOne)
+      .attach("images", fileTwo);
+
+    expect(importRes.status).toBe(200);
+    expect(importRes.body.total).toBe(2);
+    const jobId = importRes.body.id;
+
+    let job = importRes.body;
+    for (let i = 0; i < 12; i += 1) {
+      if (job.status === "completed") {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      const statusRes = await request(app).get(`/api/imports/${jobId}`);
+      expect(statusRes.status).toBe(200);
+      job = statusRes.body;
+    }
+
+    expect(job.status).toBe("completed");
+    expect(job.completed + job.failed).toBe(job.total);
+    expect(job.items.length).toBe(2);
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 });

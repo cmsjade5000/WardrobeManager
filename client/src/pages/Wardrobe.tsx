@@ -1,18 +1,23 @@
-import { useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 import { Link } from "wouter";
-import { Plus, Search, Shirt, Loader2 } from "lucide-react";
+import { Plus, Search, Shirt, Loader2, Upload, Check, X } from "lucide-react";
 import { motion } from "framer-motion";
+import heic2any from "heic2any";
+import { useToast } from "@/hooks/use-toast";
 
-import { Item, Tag } from "@/lib/types";
+import { ImportJob, Item, Tag } from "@/lib/types";
 
 const COLORS = [
   { value: "ALL", label: "All Colors" },
+  { value: "Unknown", label: "Unknown" },
   { value: "Black", label: "Black" },
   { value: "White", label: "White" },
   { value: "Navy", label: "Navy" },
@@ -29,6 +34,8 @@ const COLORS = [
 ];
 
 export default function Wardrobe() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("ALL");
   const [tagFilter, setTagFilter] = useState("ALL");
@@ -36,6 +43,14 @@ export default function Wardrobe() {
   const [aiPrompt, setAiPrompt] = useState("");
   const [aiResponse, setAiResponse] = useState("");
   const [aiError, setAiError] = useState("");
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkFiles, setBulkFiles] = useState<File[]>([]);
+  const [bulkType, setBulkType] = useState("TOP");
+  const [bulkCategory, setBulkCategory] = useState("Imported");
+  const [bulkColor, setBulkColor] = useState("Unknown");
+  const [bulkJobId, setBulkJobId] = useState<string | null>(null);
+  const [bulkNotified, setBulkNotified] = useState(false);
+  const [bulkConverting, setBulkConverting] = useState(false);
 
   const { data: items, isLoading, isError } = useQuery<Item[]>({
     queryKey: ['items', search, typeFilter, tagFilter, colorFilter],
@@ -64,6 +79,122 @@ export default function Wardrobe() {
     },
   });
 
+  const bulkImportMutation = useMutation({
+    mutationFn: (payload: {
+      files: File[];
+      type: string;
+      category: string;
+      color: string;
+    }) => api.imports.create(payload),
+    onSuccess: (data: ImportJob) => {
+      setBulkJobId(data.id);
+      setBulkNotified(false);
+      toast({
+        title: "Import started",
+        description: `Processing ${data.total} items.`,
+      });
+    },
+    onError: (error) => {
+      const message = error instanceof Error ? error.message : "Failed to start import.";
+      toast({ title: "Import failed", description: message, variant: "destructive" });
+    },
+  });
+
+  const { data: importJob } = useQuery({
+    queryKey: ["imports", bulkJobId],
+    queryFn: () => api.imports.status(bulkJobId ?? ""),
+    enabled: Boolean(bulkJobId),
+    refetchInterval: (query) =>
+      query.state.data?.status === "completed" ? false : 1000,
+  });
+
+  useEffect(() => {
+    if (importJob?.status === "completed" && !bulkNotified) {
+      setBulkNotified(true);
+      queryClient.invalidateQueries({ queryKey: ["items"] });
+      toast({
+        title: "Import complete",
+        description: `${importJob.completed} added, ${importJob.failed} failed.`,
+      });
+    }
+  }, [importJob, bulkNotified, queryClient, toast]);
+
+  const handleBulkFiles = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selected = Array.from(e.target.files ?? []);
+    if (!selected.length) {
+      return;
+    }
+
+    const heicTypes = new Set([
+      "image/heic",
+      "image/heif",
+      "image/heic-sequence",
+      "image/heif-sequence",
+    ]);
+
+    const hasHeic = selected.some((file) => {
+      const ext = file.name.split(".").pop()?.toLowerCase();
+      return heicTypes.has(file.type) || ext === "heic" || ext === "heif";
+    });
+
+    try {
+      setBulkConverting(hasHeic);
+      const normalized = await Promise.all(
+        selected.map(async (file) => {
+          const extension = file.name.split(".").pop()?.toLowerCase();
+          const isHeic = heicTypes.has(file.type) || extension === "heic" || extension === "heif";
+          if (!isHeic) {
+            return file;
+          }
+          const converted = await heic2any({
+            blob: file,
+            toType: "image/jpeg",
+            quality: 0.9,
+          });
+          const blob = Array.isArray(converted) ? converted[0] : converted;
+          const filename = file.name.replace(/\.(heic|heif)$/i, ".jpg");
+          return new File([blob], filename, { type: "image/jpeg" });
+        })
+      );
+      setBulkFiles(normalized);
+      if (hasHeic) {
+        toast({ title: "HEIC converted", description: "Uploaded as JPEG for processing." });
+      }
+    } catch (error) {
+      console.error("Bulk HEIC conversion failed:", error);
+      toast({
+        title: "Image conversion failed",
+        description: "Please export as JPG, PNG, or WebP and try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setBulkConverting(false);
+      e.target.value = "";
+    }
+  };
+
+  const handleBulkImport = () => {
+    if (!bulkFiles.length) {
+      toast({ title: "Select images", description: "Add at least one image to import." });
+      return;
+    }
+    if (!bulkCategory.trim() || !bulkColor.trim()) {
+      toast({
+        title: "Missing defaults",
+        description: "Type, category, and color are required for bulk imports.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    bulkImportMutation.mutate({
+      files: bulkFiles,
+      type: bulkType,
+      category: bulkCategory.trim(),
+      color: bulkColor.trim(),
+    });
+  };
+
   const handleAiSubmit = () => {
     const trimmedPrompt = aiPrompt.trim();
     if (!trimmedPrompt) {
@@ -82,12 +213,161 @@ export default function Wardrobe() {
           <h2 className="text-3xl font-serif font-bold text-foreground" data-testid="page-title">Wardrobe</h2>
           <p className="text-muted-foreground mt-1">Manage your collection.</p>
         </div>
-        <Link href="/item/new">
-          <Button className="rounded-full px-6 bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg hover:shadow-xl transition-all" data-testid="button-add-item">
-            <Plus className="mr-2 h-4 w-4" /> Add Item
+        <div className="flex flex-wrap gap-3">
+          <Button
+            variant="outline"
+            className="rounded-full px-6"
+            onClick={() => setBulkOpen(true)}
+          >
+            <Upload className="mr-2 h-4 w-4" /> Bulk Import
           </Button>
-        </Link>
+          <Link href="/item/new">
+            <Button className="rounded-full px-6 bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg hover:shadow-xl transition-all" data-testid="button-add-item">
+              <Plus className="mr-2 h-4 w-4" /> Add Item
+            </Button>
+          </Link>
+        </div>
       </div>
+
+      <Dialog open={bulkOpen} onOpenChange={setBulkOpen}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Bulk import</DialogTitle>
+            <DialogDescription>
+              Upload multiple images and apply the same defaults to each item.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-5">
+            <div className="grid gap-2">
+              <Label htmlFor="bulk-images">Images</Label>
+              <Input
+                id="bulk-images"
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/heic,image/heif,image/heic-sequence,image/heif-sequence"
+                multiple
+                onChange={handleBulkFiles}
+                disabled={bulkConverting}
+              />
+              {bulkConverting && (
+                <p className="text-xs text-muted-foreground flex items-center gap-2">
+                  <Loader2 className="h-3 w-3 animate-spin" /> Converting HEIC images...
+                </p>
+              )}
+              {bulkFiles.length > 0 && (
+                <div className="rounded-lg border bg-secondary/30 p-3 max-h-40 overflow-y-auto space-y-2">
+                  {bulkFiles.map((file, index) => (
+                    <div key={`${file.name}-${index}`} className="flex items-center justify-between text-sm">
+                      <span className="truncate">{file.name}</span>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={() => {
+                          setBulkFiles((prev) => prev.filter((_, i) => i !== index));
+                        }}
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div className="grid gap-2">
+                <Label>Type</Label>
+                <Select value={bulkType} onValueChange={setBulkType}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="TOP">Top</SelectItem>
+                    <SelectItem value="BOTTOM">Bottom</SelectItem>
+                    <SelectItem value="OUTERWEAR">Outerwear</SelectItem>
+                    <SelectItem value="ONE_PIECE">One Piece</SelectItem>
+                    <SelectItem value="SHOES">Shoes</SelectItem>
+                    <SelectItem value="ACCESSORY">Accessory</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-2">
+                <Label>Category</Label>
+                <Input value={bulkCategory} onChange={(e) => setBulkCategory(e.target.value)} />
+              </div>
+              <div className="grid gap-2">
+                <Label>Color</Label>
+                <Select value={bulkColor} onValueChange={setBulkColor}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Color" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {COLORS.filter((color) => color.value !== "ALL").map((color) => (
+                      <SelectItem key={color.value} value={color.value}>
+                        {color.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            {importJob && (
+              <div className="rounded-lg border bg-secondary/20 p-4 space-y-3">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="font-medium">Progress</span>
+                  <span>
+                    {importJob.completed + importJob.failed}/{importJob.total}
+                  </span>
+                </div>
+                <div className="h-2 rounded-full bg-secondary/40 overflow-hidden">
+                  <div
+                    className="h-full bg-primary transition-all"
+                    style={{
+                      width: `${Math.round(
+                        ((importJob.completed + importJob.failed) / importJob.total) * 100
+                      )}%`,
+                    }}
+                  />
+                </div>
+                <div className="max-h-48 overflow-y-auto space-y-2 text-sm">
+                  {importJob.items.map((item) => (
+                    <div key={item.id} className="flex items-center justify-between gap-3">
+                      <span className="truncate">{item.filename}</span>
+                      <span className="flex items-center gap-2 text-xs text-muted-foreground">
+                        {item.status === "processing" && <Loader2 className="h-3 w-3 animate-spin" />}
+                        {item.status === "completed" && <Check className="h-3 w-3 text-emerald-500" />}
+                        {item.status === "failed" && <X className="h-3 w-3 text-destructive" />}
+                        {item.status}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div className="flex flex-col sm:flex-row gap-3 sm:justify-end">
+              <Button
+                variant="outline"
+                onClick={() => setBulkOpen(false)}
+                disabled={bulkImportMutation.isPending}
+              >
+                Close
+              </Button>
+              <Button
+                onClick={handleBulkImport}
+                disabled={
+                  bulkImportMutation.isPending ||
+                  bulkConverting ||
+                  !bulkFiles.length ||
+                  !bulkCategory.trim() ||
+                  !bulkColor.trim()
+                }
+              >
+                {bulkImportMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Start Import
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Filters */}
       <div className="bg-card p-4 rounded-xl border shadow-sm flex flex-col md:flex-row gap-4 items-center">

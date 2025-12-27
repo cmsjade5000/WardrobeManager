@@ -147,7 +147,7 @@ const suggestColorFromImage = async (src: string): Promise<string | null> => {
       }
 
       let bestBucket: { count: number; r: number; g: number; b: number } | null = null;
-      for (const bucket of buckets.values()) {
+      for (const bucket of Array.from(buckets.values())) {
         if (!bestBucket || bucket.count > bestBucket.count) {
           bestBucket = bucket;
         }

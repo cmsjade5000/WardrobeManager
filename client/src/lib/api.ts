@@ -1,4 +1,4 @@
-import { Item, Outfit } from './types';
+import { ImportJob, Item, Outfit } from './types';
 
 export const api = {
   ai: {
@@ -102,6 +102,47 @@ export const api = {
       if (!res.ok) throw new Error('Failed to delete tag');
       return true;
     }
+  },
+
+  imports: {
+    create: async (payload: {
+      files: File[];
+      type: string;
+      category: string;
+      color: string;
+      brand?: string;
+      size?: string;
+      material?: string;
+      notes?: string;
+      tags?: string[];
+    }) => {
+      const formData = new FormData();
+      for (const file of payload.files) {
+        formData.append("images", file);
+      }
+      formData.append("type", payload.type);
+      formData.append("category", payload.category);
+      formData.append("color", payload.color);
+      if (payload.brand) formData.append("brand", payload.brand);
+      if (payload.size) formData.append("size", payload.size);
+      if (payload.material) formData.append("material", payload.material);
+      if (payload.notes) formData.append("notes", payload.notes);
+      if (payload.tags?.length) {
+        formData.append("tags", JSON.stringify(payload.tags));
+      }
+
+      const res = await fetch("/api/imports", {
+        method: "POST",
+        body: formData,
+      });
+      if (!res.ok) throw new Error("Failed to start import");
+      return res.json();
+    },
+    status: async (id: string): Promise<ImportJob> => {
+      const res = await fetch(`/api/imports/${id}`);
+      if (!res.ok) throw new Error("Failed to fetch import status");
+      return res.json();
+    },
   },
 
   outfits: {
