@@ -4,6 +4,7 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 import { PrismaClient, type ImportJob as PrismaImportJob, type ImportJobItem as PrismaImportJobItem } from "@prisma/client";
+import { z } from "zod";
 import sharp from "sharp";
 import { createHash, randomUUID } from "crypto";
 import AdmZip from "adm-zip";
@@ -23,6 +24,99 @@ const STANDARD_SATURATION = Number.parseFloat(process.env.IMAGE_SATURATION ?? ""
 const STANDARD_BG_TOP = process.env.IMAGE_BACKGROUND_TOP || "#f2f4f7";
 const STANDARD_BG_BOTTOM = process.env.IMAGE_BACKGROUND_BOTTOM || "#dfe5ec";
 const IMAGE_HASH_SIZE = Number.parseInt(process.env.IMAGE_HASH_SIZE ?? "", 10) || 64;
+
+const ITEM_TYPES = ["TOP", "BOTTOM", "OUTERWEAR", "ONE_PIECE", "SHOES", "ACCESSORY"] as const;
+const itemTypeSchema = z.enum(ITEM_TYPES);
+
+const createItemSchema = z.object({
+  name: z.string().trim().min(1),
+  type: itemTypeSchema,
+  category: z.string().trim().min(1),
+  color: z.string().trim().min(1),
+  imageUrl: z.string().trim().optional(),
+  brand: z.string().trim().optional(),
+  size: z.string().trim().optional(),
+  material: z.string().trim().optional(),
+  notes: z.string().trim().optional(),
+});
+
+const updateItemSchema = z.object({
+  name: z.string().trim().min(1).optional(),
+  type: itemTypeSchema.optional(),
+  category: z.string().trim().min(1).optional(),
+  color: z.string().trim().min(1).optional(),
+  imageUrl: z.string().trim().optional(),
+  brand: z.string().trim().optional(),
+  size: z.string().trim().optional(),
+  material: z.string().trim().optional(),
+  notes: z.string().trim().optional(),
+});
+
+const outfitItemSchema = z.object({
+  itemId: z.string().trim().min(1),
+  position: z.number().int().min(0),
+});
+
+const createOutfitSchema = z.object({
+  name: z.string().trim().min(1),
+  notes: z.string().trim().optional(),
+  items: z.array(outfitItemSchema).min(1),
+});
+
+const updateOutfitSchema = z.object({
+  name: z.string().trim().min(1).optional(),
+  notes: z.string().trim().optional(),
+  items: z.array(outfitItemSchema).optional(),
+});
+
+const bulkImportSchema = z.object({
+  type: itemTypeSchema,
+  category: z.string().trim().min(1),
+  color: z.string().trim().min(1),
+  brand: z.string().trim().optional(),
+  size: z.string().trim().optional(),
+  material: z.string().trim().optional(),
+  notes: z.string().trim().optional(),
+});
+
+const csvDefaultsSchema = z.object({
+  type: itemTypeSchema.optional(),
+  category: z.string().trim().optional(),
+  color: z.string().trim().optional(),
+  brand: z.string().trim().optional(),
+  size: z.string().trim().optional(),
+  material: z.string().trim().optional(),
+  notes: z.string().trim().optional(),
+});
+
+const coerceString = (value: unknown): string => {
+  if (typeof value !== "string") {
+    return "";
+  }
+  return value.trim();
+};
+
+const coerceOptionalString = (value: unknown): string | undefined => {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed === "" ? undefined : trimmed;
+};
+
+const coerceUpdateString = (value: unknown): string | undefined => {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  return value.trim();
+};
+
+const sendValidationError = (res: Response, error: z.ZodError) => {
+  return res.status(400).json({
+    error: "Validation failed",
+    details: error.flatten().fieldErrors,
+  });
+};
 
 type BackgroundRemovalModule = typeof import("@imgly/background-removal-node");
 let backgroundRemovalModule: BackgroundRemovalModule | null = null;
@@ -651,12 +745,26 @@ export async function registerRoutes(
   // Create Item (Multipart)
   app.post("/api/items", upload.single('image'), async (req, res) => {
     try {
-      if (!req.file && !req.body.imageUrl) {
-         // Allow external URLs if provided, but prioritize file
+      const parsed = createItemSchema.safeParse({
+        name: coerceString(req.body.name),
+        type: coerceString(req.body.type),
+        category: coerceString(req.body.category),
+        color: coerceString(req.body.color),
+        imageUrl: coerceOptionalString(req.body.imageUrl),
+        brand: coerceOptionalString(req.body.brand),
+        size: coerceOptionalString(req.body.size),
+        material: coerceOptionalString(req.body.material),
+        notes: coerceOptionalString(req.body.notes),
+      });
+
+      if (!parsed.success) {
+        return sendValidationError(res, parsed.error);
       }
 
-      const { name, type, category, color, brand, size, material, notes, tags } = req.body;
-      let imageUrl = req.body.imageUrl;
+      const { name, type, category, color, brand, size, material, notes, imageUrl: imageUrlInput } =
+        parsed.data;
+      const { tags } = req.body;
+      let imageUrl = imageUrlInput;
 
       if (req.file) {
         imageUrl = await processUploadedImage(req.file.path);
@@ -713,7 +821,24 @@ export async function registerRoutes(
   // Update Item (with multipart support for image replacement)
   app.put("/api/items/:id", upload.single('image'), async (req, res) => {
     try {
-      const { name, type, category, color, imageUrl, brand, size, material, notes, tags } = req.body;
+      const parsed = updateItemSchema.safeParse({
+        name: coerceUpdateString(req.body.name),
+        type: coerceUpdateString(req.body.type),
+        category: coerceUpdateString(req.body.category),
+        color: coerceUpdateString(req.body.color),
+        imageUrl: coerceUpdateString(req.body.imageUrl),
+        brand: coerceUpdateString(req.body.brand),
+        size: coerceUpdateString(req.body.size),
+        material: coerceUpdateString(req.body.material),
+        notes: coerceUpdateString(req.body.notes),
+      });
+
+      if (!parsed.success) {
+        return sendValidationError(res, parsed.error);
+      }
+
+      const { name, type, category, color, imageUrl, brand, size, material, notes } = parsed.data;
+      const { tags } = req.body;
       
       // Handle image: prefer uploaded file, then URL
       let finalImageUrl = imageUrl;
@@ -784,13 +909,23 @@ export async function registerRoutes(
   app.post("/api/imports", upload.array("images", 25), async (req, res) => {
     try {
       const files = Array.isArray(req.files) ? req.files : [];
-      const { type, category, color, brand, size, material, notes, tags } = req.body;
+      const { tags } = req.body;
 
       if (!files.length) {
         return res.status(400).json({ error: "No images uploaded" });
       }
-      if (!type || !category || !color) {
-        return res.status(400).json({ error: "Type, category, and color are required" });
+      const defaultsParsed = bulkImportSchema.safeParse({
+        type: coerceString(req.body.type),
+        category: coerceString(req.body.category),
+        color: coerceString(req.body.color),
+        brand: coerceOptionalString(req.body.brand),
+        size: coerceOptionalString(req.body.size),
+        material: coerceOptionalString(req.body.material),
+        notes: coerceOptionalString(req.body.notes),
+      });
+
+      if (!defaultsParsed.success) {
+        return sendValidationError(res, defaultsParsed.error);
       }
 
       let tagIds: string[] = [];
@@ -807,13 +942,7 @@ export async function registerRoutes(
       }
 
       const defaults: ImportDefaults = {
-        type,
-        category,
-        color,
-        brand,
-        size,
-        material,
-        notes,
+        ...defaultsParsed.data,
         tags: tagIds,
       };
 
@@ -881,15 +1010,29 @@ export async function registerRoutes(
         return res.status(400).json({ error: "CSV and ZIP files are required" });
       }
 
-      const { type, category, color, brand, size, material, notes, tags } = req.body;
+      const { tags } = req.body;
+      const defaultsParsed = csvDefaultsSchema.safeParse({
+        type: coerceOptionalString(req.body.type),
+        category: coerceOptionalString(req.body.category),
+        color: coerceOptionalString(req.body.color),
+        brand: coerceOptionalString(req.body.brand),
+        size: coerceOptionalString(req.body.size),
+        material: coerceOptionalString(req.body.material),
+        notes: coerceOptionalString(req.body.notes),
+      });
+
+      if (!defaultsParsed.success) {
+        return sendValidationError(res, defaultsParsed.error);
+      }
+
       const defaults: ImportDefaults = {
-        type: typeof type === "string" ? type.trim() : "",
-        category: typeof category === "string" ? category.trim() : "",
-        color: typeof color === "string" ? color.trim() : "",
-        brand: typeof brand === "string" ? brand.trim() : undefined,
-        size: typeof size === "string" ? size.trim() : undefined,
-        material: typeof material === "string" ? material.trim() : undefined,
-        notes: typeof notes === "string" ? notes.trim() : undefined,
+        type: defaultsParsed.data.type ?? "",
+        category: defaultsParsed.data.category ?? "",
+        color: defaultsParsed.data.color ?? "",
+        brand: defaultsParsed.data.brand,
+        size: defaultsParsed.data.size,
+        material: defaultsParsed.data.material,
+        notes: defaultsParsed.data.notes,
         tags: [] as string[],
       };
 
@@ -1178,7 +1321,11 @@ export async function registerRoutes(
   });
 
   app.post("/api/outfits", async (req, res) => {
-    const { name, notes, items } = req.body; // items: { itemId, position }[]
+    const parsed = createOutfitSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return sendValidationError(res, parsed.error);
+    }
+    const { name, notes, items } = parsed.data; // items: { itemId, position }[]
     
     try {
       const outfit = await prismaClient.outfit.create({
@@ -1201,7 +1348,11 @@ export async function registerRoutes(
   });
   
   app.put("/api/outfits/:id", async (req, res) => {
-    const { name, notes, items } = req.body;
+    const parsed = updateOutfitSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return sendValidationError(res, parsed.error);
+    }
+    const { name, notes, items } = parsed.data;
     
     try {
       // Update outfit metadata

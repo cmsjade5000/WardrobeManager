@@ -119,6 +119,18 @@ describe("API routes", () => {
     expect(getOutfitRes.body.id).toBe(outfitId);
   });
 
+  it("rejects invalid item and outfit payloads", async () => {
+    const badItemRes = await request(app)
+      .post("/api/items")
+      .field("type", "TOP")
+      .field("category", "Shirt")
+      .field("color", "Blue");
+    expect(badItemRes.status).toBe(400);
+
+    const badOutfitRes = await request(app).post("/api/outfits").send({ name: "No items" });
+    expect(badOutfitRes.status).toBe(400);
+  });
+
   it("processes bulk imports", async () => {
     const tmpDir = path.resolve("uploads", `import-test-${Date.now()}`);
     fs.mkdirSync(tmpDir, { recursive: true });
