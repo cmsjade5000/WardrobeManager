@@ -186,6 +186,34 @@ describe("API routes", () => {
     expect(missingOutfitDelete.status).toBe(404);
   });
 
+  it("stores a synthetic PNG from a multipart item upload", async () => {
+    const image = await sharp({
+      create: { width: 32, height: 24, channels: 3, background: "#336699" },
+    }).png().toBuffer();
+
+    const response = await request(app)
+      .post("/api/items")
+      .field("name", "Synthetic upload")
+      .field("type", "TOP")
+      .field("category", "Shirt")
+      .field("color", "Blue")
+      .attach("image", image, { filename: "fixture.png", contentType: "image/png" });
+
+    expect(response.status).toBe(200);
+    try {
+      expect(response.body.imageUrl).toMatch(/^\/uploads\//);
+      const saved = await request(app).get(`/api/items/${response.body.id}`);
+      expect(saved.status).toBe(200);
+      expect(saved.body.imageUrl).toBe(response.body.imageUrl);
+      const outputPath = path.resolve(response.body.imageUrl.slice(1));
+      const metadata = await sharp(outputPath).metadata();
+      expect(metadata.width).toBeGreaterThan(0);
+      expect(metadata.height).toBeGreaterThan(0);
+    } finally {
+      await request(app).delete(`/api/items/${response.body.id}`);
+    }
+  });
+
   it("processes bulk imports", async () => {
     const tmpDir = path.resolve("uploads", `import-test-${Date.now()}`);
     fs.mkdirSync(tmpDir, { recursive: true });
