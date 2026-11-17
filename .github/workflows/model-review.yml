@@ -12,6 +12,7 @@ jobs:
       fail-fast: false
       matrix:
         node: ['20', '22']
+        model: ['modnet', 'birefnet']
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -34,12 +35,20 @@ jobs:
           ./node_modules/.bin/prisma generate
           model="$RUNNER_TEMP/modnet"
           mkdir -p "$model/onnx"
-          rev=$(curl -fsSL --retry 2 https://huggingface.co/api/models/Xenova/modnet/revision/fa2fa54 | jq -er '.sha | select(startswith("fa2fa54"))')
+          hub=Xenova/modnet
+          short=fa2fa54
+          digest=07c308cf0fc7e6e8b2065a12ed7fc07e1de8febb7dc7839d7b7f15dd66584df9
+          if [[ '${{ matrix.model }}' == 'birefnet' ]]; then
+            hub=onnx-community/BiRefNet_lite-ONNX
+            short=de15b22
+            digest=5600024376f572a557870a5eb0afb1e5961636bef4e1e22132025467d0f03333
+          fi
+          rev=$(curl -fsSL --retry 2 "https://huggingface.co/api/models/$hub/revision/$short" | jq -er --arg s "$short" '.sha | select(startswith($s))')
           echo "Test model revision $rev"
           for file in config.json preprocessor_config.json onnx/model.onnx; do
-            curl -fsSL --retry 2 "https://huggingface.co/Xenova/modnet/resolve/$rev/$file" -o "$model/$file"
+            curl -fsSL --retry 2 "https://huggingface.co/$hub/resolve/$rev/$file" -o "$model/$file"
           done
-          echo "07c308cf0fc7e6e8b2065a12ed7fc07e1de8febb7dc7839d7b7f15dd66584df9  $model/onnx/model.onnx" | sha256sum -c -
+          echo "$digest  $model/onnx/model.onnx" | sha256sum -c -
           npm audit --omit=dev --json > "$RUNNER_TEMP/audit.json" || true
           node -e "const a=require(process.env.RUNNER_TEMP+'/audit.json');if(!a.metadata)process.exit(1);console.log('Audit counts',JSON.stringify(a.metadata.vulnerabilities))"
       - name: Exercise synthetic garment through normal upload without external network
@@ -53,18 +62,32 @@ jobs:
           src = src[:start] + src[end:]
           start = src.index("    const { removeBackground }")
           end = src.index("    const { dir, name }", start)
-          src = src[:start] + '''    const { env, pipeline, RawImage } = await import("@huggingface/transformers");
+          src = src[:start] + '''    const { env, pipeline, RawImage, AutoModel, AutoProcessor } = await import("@huggingface/transformers");
               env.allowRemoteModels = false;
               env.allowLocalModels = true;
-              const segment = await pipeline("background-removal", process.env.LOCAL_MODEL_DIR!, { dtype: "fp32", device: "cpu", local_files_only: true });
+              const options = { dtype: "fp32", device: "cpu", local_files_only: true } as const;
               const { data, info } = await sharp(resolvedPath).rotate().removeAlpha().raw().toBuffer({ resolveWithObject: true });
               const image = new RawImage(new Uint8ClampedArray(data), info.width, info.height, 3);
-              const [output] = await segment(image);
+              let output;
+              if (process.env.TEST_MODEL === "birefnet") {
+                const model = await AutoModel.from_pretrained(process.env.LOCAL_MODEL_DIR!, options);
+                const processor = await AutoProcessor.from_pretrained(process.env.LOCAL_MODEL_DIR!, { local_files_only: true });
+                const { pixel_values } = await processor(image);
+                const { output_image } = await model({ input_image: pixel_values });
+                const mask = await RawImage.fromTensor(output_image[0].sigmoid().mul(255).to("uint8")).resize(info.width, info.height);
+                output = image.convert(4);
+                for (let i = 0; i < mask.data.length; i++) output.data[4 * i + 3] = mask.data[i];
+                await model.dispose();
+              } else {
+                const segment = await pipeline("background-removal", process.env.LOCAL_MODEL_DIR!, options);
+                const result = await segment(image);
+                output = Array.isArray(result) ? result[0] : result;
+                await segment.dispose();
+              }
               if (output.channels !== 4 || output.width !== info.width || output.height !== info.height) throw new Error("Unexpected image layout");
               const alpha = (x: number, y: number) => output.data[(y * output.width + x) * 4 + 3];
               console.log("Fixture alpha", JSON.stringify({ center: alpha(32,32), corner: alpha(0,0) }));
               const buffer = await sharp(Buffer.from(output.data), { raw: {width: info.width, height: info.height, channels: 4} }).png().toBuffer();
-              await segment.dispose();
           ''' + src[end:]
           routes.write_text(src)
           fixture=Path("server/__tests__/api.test.ts").read_text()
@@ -76,4 +99,4 @@ jobs:
           fixture=fixture.replace('expect(response.body.imageUrl).toMatch(', 'expect(response.body.imageUrl).toContain("-cutout-standard.png");\n      expect(response.body.imageUrl).toMatch(')
           Path("server/__tests__/offline-model.test.ts").write_text(fixture)
           PY
-          sudo unshare --net bash -c 'ip link set lo up; exec sudo -u "$1" env PATH="$2" LOCAL_MODEL_DIR="$3/modnet" npm_config_offline=true ./node_modules/.bin/vitest run server/__tests__/offline-model.test.ts -t "stores a synthetic PNG" --testTimeout=120000 --reporter=verbose' _ "$(id -un)" "$PATH" "$RUNNER_TEMP"
+          sudo unshare --net bash -c 'ip link set lo up; exec sudo -u "$1" env PATH="$2" LOCAL_MODEL_DIR="$3/modnet" TEST_MODEL="$4" npm_config_offline=true ./node_modules/.bin/vitest run server/__tests__/offline-model.test.ts -t "stores a synthetic PNG" --testTimeout=120000 --reporter=verbose' _ "$(id -un)" "$PATH" "$RUNNER_TEMP" "${{ matrix.model }}"
