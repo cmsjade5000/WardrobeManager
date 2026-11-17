@@ -127,7 +127,7 @@ const coerceUpdateString = (value: unknown): string | undefined => {
 const sendValidationError = (res: Response, error: z.ZodError) => {
   return res.status(400).json({
     error: "Validation failed",
-    details: error.flatten().fieldErrors,
+    details: z.flattenError(error).fieldErrors,
   });
 };
 

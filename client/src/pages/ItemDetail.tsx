@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, getApiErrorDetailMessages, getApiErrorFieldErrors, getApiErrorMessage } from "@/lib/api";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
+import { itemSchema, type ItemFormInput, type ItemFormValues } from "../lib/itemFormSchema";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -214,7 +214,7 @@ export default function ItemDetail() {
     queryFn: api.tags.list
   });
 
-  const form = useForm<ItemFormValues>({
+  const form = useForm<ItemFormInput, unknown, ItemFormValues>({
     resolver: zodResolver(itemSchema),
     defaultValues: {
       name: "",
@@ -576,8 +576,8 @@ export default function ItemDetail() {
                               !field.value?.length && "text-muted-foreground"
                             )}
                           >
-                            {field.value?.length > 0
-                              ? `${field.value.length} tags selected`
+                            {(field.value?.length ?? 0) > 0
+                              ? `${field.value?.length} tags selected`
                               : "Select tags"}
                           </Button>
                         </FormControl>
@@ -625,7 +625,7 @@ export default function ItemDetail() {
                             <button
                               type="button"
                               onClick={() => {
-                                const updated = field.value.filter(id => id !== tagId);
+                                const updated = (field.value ?? []).filter(id => id !== tagId);
                                 form.setValue("tags", updated);
                               }}
                               className="ml-2 hover:text-destructive"

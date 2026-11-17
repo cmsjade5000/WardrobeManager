@@ -143,6 +143,8 @@ describe("API routes", () => {
 
     const badOutfitRes = await request(app).post("/api/outfits").send({ name: "No items" });
     expect(badOutfitRes.status).toBe(400);
+    expect(badOutfitRes.body.error).toBe("Validation failed");
+    expect(badOutfitRes.body.details.items).toEqual([expect.any(String)]);
   });
 
   it("trims and validates tag names", async () => {
