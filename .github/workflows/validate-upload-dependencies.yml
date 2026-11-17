@@ -27,9 +27,29 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '20'
-      - name: Verify review revision and clean install
+      - name: Assess compatible production dependency repairs
         run: |
           test "$(git rev-parse HEAD)" = "780c787f0436db588bea1ad723e33320f7e2a9a9"
+          npm audit --omit=dev --json > "$RUNNER_TEMP/audit-before.json" || true
+          npm audit fix --package-lock-only --ignore-scripts --omit=dev --no-fund --json > "$RUNNER_TEMP/repair.json" || true
+          npm audit --omit=dev --json > "$RUNNER_TEMP/audit-after.json" || true
+          node --input-type=commonjs <<'JS'
+          const fs = require('node:fs');
+          for (const phase of ['before', 'after']) {
+            const report = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/audit-' + phase + '.json', 'utf8'));
+            if (!report.metadata?.vulnerabilities) throw new Error('No audit result');
+            console.log('PRODUCTION_AUDIT', phase, JSON.stringify(report.metadata.vulnerabilities));
+            for (const [name, item] of Object.entries(report.vulnerabilities)) {
+              const sources = item.via.map(v => typeof v === 'string' ? v : [v.title, v.url, v.range]);
+              console.log('AFFECTED', phase, JSON.stringify({ name, severity: item.severity, fix: item.fixAvailable, nodes: item.nodes, sources }));
+            }
+          }
+          JS
+          git diff --check -- package.json package-lock.json
+          git hash-object package.json package-lock.json
+          git diff --no-color --unified=3 -- package.json package-lock.json | base64 -w 512 | sed 's/^/MANIFEST_DIFF /'
+      - name: Clean install and prepare test client
+        run: |
           npm ci --no-audit --no-fund
           ./node_modules/.bin/prisma generate
       - name: Run fixture suite
