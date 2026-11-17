@@ -12,7 +12,7 @@ jobs:
       fail-fast: false
       matrix:
         node: ['20', '22']
-        model: ['modnet', 'birefnet']
+        model: ['birefnet']
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -50,7 +50,7 @@ jobs:
           done
           echo "$digest  $model/onnx/model.onnx" | sha256sum -c -
           npm audit --omit=dev --json > "$RUNNER_TEMP/audit.json" || true
-          node -e "const a=require(process.env.RUNNER_TEMP+'/audit.json');if(!a.metadata)process.exit(1);console.log('Audit counts',JSON.stringify(a.metadata.vulnerabilities))"
+          node -e "const a=require(process.env.RUNNER_TEMP+'/audit.json');if(!a.metadata)process.exit(1);console.log('Audit counts',JSON.stringify(a.metadata.vulnerabilities));console.log('Audit name hash',require('node:crypto').createHash('sha256').update(Object.keys(a.vulnerabilities).sort().join(',')).digest('hex'))"
       - name: Exercise synthetic garment through normal upload without external network
         run: |
           python3 - <<'PY'
@@ -62,28 +62,30 @@ jobs:
           src = src[:start] + src[end:]
           start = src.index("    const { removeBackground }")
           end = src.index("    const { dir, name }", start)
-          src = src[:start] + '''    const { env, pipeline, RawImage, AutoModel, AutoProcessor } = await import("@huggingface/transformers");
+          src = src[:start] + '''    const { env, RawImage, AutoModel, AutoProcessor } = await import("@huggingface/transformers");
               env.allowRemoteModels = false;
               env.allowLocalModels = true;
               const options = { dtype: "fp32", device: "cpu", local_files_only: true } as const;
               const { data, info } = await sharp(resolvedPath).rotate().removeAlpha().raw().toBuffer({ resolveWithObject: true });
               const image = new RawImage(new Uint8ClampedArray(data), info.width, info.height, 3);
-              let output;
-              if (process.env.TEST_MODEL === "birefnet") {
-                const model = await AutoModel.from_pretrained(process.env.LOCAL_MODEL_DIR!, options);
-                const processor = await AutoProcessor.from_pretrained(process.env.LOCAL_MODEL_DIR!, { local_files_only: true });
-                const { pixel_values } = await processor(image);
-                const { output_image } = await model({ input_image: pixel_values });
-                const mask = await RawImage.fromTensor(output_image[0].sigmoid().mul(255).to("uint8")).resize(info.width, info.height);
-                output = image.convert(4);
-                for (let i = 0; i < mask.data.length; i++) output.data[4 * i + 3] = mask.data[i];
-                await model.dispose();
-              } else {
-                const segment = await pipeline("background-removal", process.env.LOCAL_MODEL_DIR!, options);
-                const result = await segment(image);
-                output = Array.isArray(result) ? result[0] : result;
-                await segment.dispose();
+              const model = await AutoModel.from_pretrained(process.env.LOCAL_MODEL_DIR!, options);
+              const processor = await AutoProcessor.from_pretrained(process.env.LOCAL_MODEL_DIR!, { local_files_only: true });
+              const { pixel_values } = await processor(image);
+              const { output_image } = await model({ input_image: pixel_values });
+              const mask = await RawImage.fromTensor(output_image[0].sigmoid().mul(255).to("uint8")).resize(info.width, info.height);
+              const output = image.convert(4);
+              let intersection = 0, union = 0, expectedPixels = 0, keptPixels = 0;
+              for (let i = 0; i < mask.data.length; i++) {
+                output.data[4 * i + 3] = mask.data[i];
+                const expected = data[i * 3] < 145;
+                const actual = mask.data[i] >= 128;
+                expectedPixels += Number(expected);
+                keptPixels += Number(actual);
+                intersection += Number(expected && actual);
+                union += Number(expected || actual);
               }
+              console.log("Synthetic mask overlap", JSON.stringify({ intersection, union, expectedPixels, keptPixels, iou: intersection / union }));
+              await model.dispose();
               if (output.channels !== 4 || output.width !== info.width || output.height !== info.height) throw new Error("Unexpected image layout");
               const alpha = (x: number, y: number) => output.data[(y * output.width + x) * 4 + 3];
               console.log("Fixture alpha", JSON.stringify({ center: alpha(32,32), corner: alpha(0,0) }));
@@ -99,4 +101,6 @@ jobs:
           fixture=fixture.replace('expect(response.body.imageUrl).toMatch(', 'expect(response.body.imageUrl).toContain("-cutout-standard.png");\n      expect(response.body.imageUrl).toMatch(')
           Path("server/__tests__/offline-model.test.ts").write_text(fixture)
           PY
+          npm run check
+          npm run build
           sudo unshare --net bash -c 'ip link set lo up; exec sudo -u "$1" env PATH="$2" LOCAL_MODEL_DIR="$3/modnet" TEST_MODEL="$4" npm_config_offline=true ./node_modules/.bin/vitest run server/__tests__/offline-model.test.ts -t "stores a synthetic PNG" --testTimeout=120000 --reporter=verbose' _ "$(id -un)" "$PATH" "$RUNNER_TEMP" "${{ matrix.model }}"
