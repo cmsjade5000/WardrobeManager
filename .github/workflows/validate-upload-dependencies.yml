@@ -1,0 +1,54 @@
+name: Validate upload dependency update
+
+on:
+  push:
+    branches:
+      - codex/validate-wardrobe-dependencies
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /*
+            !/uploads/
+            !/prisma/dev.db
+            !/.env
+            !/.env.local
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '20'
+      - name: Resolve and record the manifest changes
+        run: |
+          node --version
+          npm --version
+          npm view @imgly/background-removal-node@latest version dependencies.sharp
+          npm install --package-lock-only --ignore-scripts --no-audit --no-fund --save-exact multer@2.5.0 adm-zip@0.6.1 sharp@0.35.5 ws@8.23.0 uuid@13.0.1
+          git diff --check -- package.json package-lock.json
+          git hash-object package.json package-lock.json
+          git diff --no-color --unified=3 -- package.json package-lock.json | base64 -w 512 | sed 's/^/MANIFEST_DIFF /'
+      - name: Clean install
+        run: npm ci --no-audit --no-fund
+      - name: Inspect resolved runtime packages
+        run: |
+          npm ls --all multer adm-zip sharp ws uuid
+          node --input-type=module -e "import sharp from 'sharp'; console.log('Sharp', sharp.versions.sharp, 'libvips', sharp.versions.vips)"
+          ./node_modules/.bin/prisma generate
+      - name: Run API suite with synthetic data
+        env:
+          BG_REMOVAL_ENABLED: 'false'
+        run: npm test -- --reporter=verbose
+      - name: Type check
+        if: ${{ !cancelled() }}
+        run: npm run check
+      - name: Build
+        if: ${{ !cancelled() }}
+        run: npm run build
