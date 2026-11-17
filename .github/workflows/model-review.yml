@@ -27,11 +27,49 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: ${{ matrix.node }}
+      - name: Measure current model on the same offline fixture
+        run: |
+          npm ci --no-audit --no-fund
+          ./node_modules/.bin/prisma generate
+          node -e "const m=require('./node_modules/@imgly/background-removal-node/dist/resources.json');console.log('Baseline model bytes',m['/models/small'].size)"
+          python3 - <<'PY'
+          from pathlib import Path
+          routes = Path("server/routes.ts")
+          src = routes.read_text().replace("    const { removeBackground }", "    const startModel = performance.now();\n    const { removeBackground }")
+          target = "    const buffer = Buffer.from(await result.arrayBuffer());"
+          assert src.count(target) == 1
+          measure = '''
+              console.log("Baseline cold model milliseconds", Math.round(performance.now() - startModel));
+              const { data: rgb, info } = await sharp(resolvedPath).removeAlpha().raw().toBuffer({resolveWithObject:true});
+              const rgba = await sharp(buffer).ensureAlpha().raw().toBuffer();
+              let intersection = 0, union = 0, expectedPixels = 0, keptPixels = 0;
+              for (let i = 0; i < info.width * info.height; i++) {
+                const expected = rgb[i * 3] < 145;
+                const actual = rgba[i * 4 + 3] >= 128;
+                expectedPixels += Number(expected); keptPixels += Number(actual);
+                intersection += Number(expected && actual); union += Number(expected || actual);
+              }
+              console.log("Baseline mask overlap", JSON.stringify({intersection, union, expectedPixels, keptPixels, iou: intersection / union}));
+          '''
+          routes.write_text(src.replace(target, target + measure))
+          fixture=Path("server/__tests__/api.test.ts").read_text()
+          fixture=fixture.replace('process.env.BG_REMOVAL_ENABLED = "false";','process.env.BG_REMOVAL_ENABLED = "true";')
+          before=fixture.index("const image = await sharp(",fixture.index('it("stores a synthetic PNG'))
+          after=fixture.index("const response =",before)
+          fixture=fixture[:before]+'''const image = await sharp(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" fill="#fff"/><path d="M24 9 Q32 17 40 9 L57 19 49 29 44 25 44 56 20 56 20 25 15 29 7 19 Z" fill="#223388"/></svg>')).png().toBuffer();
+              '''+fixture[after:]
+          fixture=fixture.replace('expect(response.body.imageUrl).toMatch(', 'expect(response.body.imageUrl).toContain("-cutout-standard.png");\n      expect(response.body.imageUrl).toMatch(')
+          Path("server/__tests__/offline-model.test.ts").write_text(fixture)
+          PY
+          sudo unshare --net bash -c 'ip link set lo up; exec sudo -u "$1" env PATH="$2" npm_config_offline=true /usr/bin/time -f "Baseline runner max RSS KiB %M" ./node_modules/.bin/vitest run server/__tests__/offline-model.test.ts -t "stores a synthetic PNG" --testTimeout=120000 --reporter=verbose' _ "$(id -un)" "$PATH"
+          git show HEAD:server/routes.ts > server/routes.ts
       - name: Provision local runtime and licensed test weights
         run: |
           test "$(git rev-parse HEAD)" = 'accf5cf20f87be21fa7744c53b748146ac24bb33'
           npm pkg delete dependencies.@imgly/background-removal-node
           npm install --save-exact @huggingface/transformers@4.3.2 --no-audit --no-fund
+          npm update lodash --no-audit --no-fund
+          node -e "const l=require('./package-lock.json').packages;console.log('Resolved shared utility version',l['node_modules/lodash'].version);if(l['node_modules/recharts'].dependencies.lodash!=='^4.17.21')process.exit(1)"
           ./node_modules/.bin/prisma generate
           model="$RUNNER_TEMP/modnet"
           mkdir -p "$model/onnx"
@@ -49,6 +87,7 @@ jobs:
             curl -fsSL --retry 2 "https://huggingface.co/$hub/resolve/$rev/$file" -o "$model/$file"
           done
           echo "$digest  $model/onnx/model.onnx" | sha256sum -c -
+          stat -c "Candidate model bytes %s" "$model/onnx/model.onnx"
           npm audit --omit=dev --json > "$RUNNER_TEMP/audit.json" || true
           node -e "const a=require(process.env.RUNNER_TEMP+'/audit.json');if(!a.metadata)process.exit(1);console.log('Audit counts',JSON.stringify(a.metadata.vulnerabilities));console.log('Audit name hash',require('node:crypto').createHash('sha256').update(Object.keys(a.vulnerabilities).sort().join(',')).digest('hex'))"
       - name: Exercise synthetic garment through normal upload without external network
@@ -62,7 +101,8 @@ jobs:
           src = src[:start] + src[end:]
           start = src.index("    const { removeBackground }")
           end = src.index("    const { dir, name }", start)
-          src = src[:start] + '''    const { env, RawImage, AutoModel, AutoProcessor } = await import("@huggingface/transformers");
+          src = src[:start] + '''    const startModel = performance.now();
+              const { env, RawImage, AutoModel, AutoProcessor } = await import("@huggingface/transformers");
               env.allowRemoteModels = false;
               env.allowLocalModels = true;
               const options = { dtype: "fp32", device: "cpu", local_files_only: true } as const;
@@ -85,6 +125,7 @@ jobs:
                 union += Number(expected || actual);
               }
               console.log("Synthetic mask overlap", JSON.stringify({ intersection, union, expectedPixels, keptPixels, iou: intersection / union }));
+              console.log("Candidate cold model milliseconds", Math.round(performance.now() - startModel));
               await model.dispose();
               if (output.channels !== 4 || output.width !== info.width || output.height !== info.height) throw new Error("Unexpected image layout");
               const alpha = (x: number, y: number) => output.data[(y * output.width + x) * 4 + 3];
@@ -103,4 +144,7 @@ jobs:
           PY
           npm run check
           npm run build
-          sudo unshare --net bash -c 'ip link set lo up; exec sudo -u "$1" env PATH="$2" LOCAL_MODEL_DIR="$3/modnet" TEST_MODEL="$4" npm_config_offline=true ./node_modules/.bin/vitest run server/__tests__/offline-model.test.ts -t "stores a synthetic PNG" --testTimeout=120000 --reporter=verbose' _ "$(id -un)" "$PATH" "$RUNNER_TEMP" "${{ matrix.model }}"
+          sudo unshare --net bash -c 'ip link set lo up; exec sudo -u "$1" env PATH="$2" LOCAL_MODEL_DIR="$3/modnet" TEST_MODEL="$4" npm_config_offline=true /usr/bin/time -f "Candidate runner max RSS KiB %M" ./node_modules/.bin/vitest run server/__tests__/offline-model.test.ts -t "stores a synthetic PNG" --testTimeout=120000 --reporter=verbose' _ "$(id -un)" "$PATH" "$RUNNER_TEMP" "${{ matrix.model }}"
+      - name: Verify existing fixtures with updated dependency tree
+        run: |
+          sudo unshare --net bash -c 'ip link set lo up; exec sudo -u "$1" env PATH="$2" npm_config_offline=true ./node_modules/.bin/vitest run server/__tests__/api.test.ts server/__tests__/item-form.test.ts --reporter=verbose' _ "$(id -un)" "$PATH"
