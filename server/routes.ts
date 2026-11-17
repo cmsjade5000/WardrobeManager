@@ -154,15 +154,9 @@ const removeBackgroundFromFile = async (filePath: string): Promise<string | null
     const resolvedPath = path.resolve(filePath);
     const { removeBackground } = await loadBackgroundRemoval();
     const publicPath = `file://${path.resolve("node_modules/@imgly/background-removal-node/dist/")}/`;
-    let input: Blob | string = resolvedPath;
-
-    try {
-      // Normalize EXIF orientation and transcode to PNG for consistent decoding.
-      const normalizedBuffer = await sharp(resolvedPath).rotate().png().toBuffer();
-      input = new Blob([normalizedBuffer], { type: "image/png" });
-    } catch (error) {
-      console.warn("Background removal: failed to normalize orientation", error);
-    }
+    // The model receives only PNGs decoded and normalized by the app's Sharp version.
+    const normalizedBuffer = await sharp(resolvedPath).rotate().png().toBuffer();
+    const input = new Blob([normalizedBuffer], { type: "image/png" });
 
     const result = await removeBackground(input, {
       publicPath,
