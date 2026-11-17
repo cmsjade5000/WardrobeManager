@@ -26,7 +26,7 @@ jobs:
             !/.env.local
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
-          node-version: '20'
+          node-version: '22'
       - name: Verify review revision and clean install
         run: |
           test "$(git rev-parse HEAD)" = "1e62aa23394ec39cd2b742ab308c99009e1afc96"
