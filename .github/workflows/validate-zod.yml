@@ -1,17 +1,13 @@
-name: Verify wardrobe validation
+name: Verify synthetic model-enabled upload
 on:
   push:
     branches: ['validation/wardrobe-zod-lock-20261117']
 permissions:
   contents: read
 jobs:
-  verify:
+  model:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      matrix:
-        node: ['20', '22']
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -25,23 +21,22 @@ jobs:
             !/.env*
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
-          node-version: ${{ matrix.node }}
-      - name: Install locked packages
+          node-version: '22'
+      - name: Verify revision and prepare isolated runner
         run: |
           test "$(git rev-parse HEAD)" = 'accf5cf20f87be21fa7744c53b748146ac24bb33'
           npm ci --no-audit --no-fund
           ./node_modules/.bin/prisma generate
-      - name: Verify validator and image paths
-        run: npm test -- --reporter=verbose
-      - name: Type check
-        if: ${{ !cancelled() }}
-        run: npm run check
-      - name: Build
-        if: ${{ !cancelled() }}
-        run: npm run build
-      - name: Dependency summary
-        if: ${{ !cancelled() }}
+      - name: Exercise local background removal on synthetic item upload
         run: |
-          npm audit --omit=dev --json > "$RUNNER_TEMP/audit.json" || true
-          node -e "const a=require(process.env.RUNNER_TEMP+'/audit.json'); if(!a.metadata?.vulnerabilities) process.exit(1); console.log('Counts',JSON.stringify(a.metadata.vulnerabilities));"
-          npm view @imgly/background-removal-node@1.4.5 gitHead
+          python3 - <<'PY'
+          from pathlib import Path
+          source = Path("server/__tests__/api.test.ts").read_text()
+          settings = 'process.env.BG_REMOVAL_ENABLED = "false";'
+          check = 'expect(response.body.imageUrl).toMatch('
+          assert source.count(settings) == 1 and source.count(check) == 1
+          source = source.replace(settings, 'process.env.BG_REMOVAL_ENABLED = "true";')
+          source = source.replace(check, 'expect(response.body.imageUrl).toContain("-cutout-standard.png");\n      ' + check)
+          Path("server/__tests__/background-local.test.ts").write_text(source)
+          PY
+          ./node_modules/.bin/vitest run server/__tests__/background-local.test.ts -t 'stores a synthetic PNG from a multipart item upload' --testTimeout=180000 --reporter=verbose
