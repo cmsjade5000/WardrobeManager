@@ -15,7 +15,7 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: e21da874a745bd879875d8608266c1aae0f17e83
+          ref: accf5cf20f87be21fa7744c53b748146ac24bb33
           persist-credentials: false
           sparse-checkout-cone-mode: false
           sparse-checkout: |
@@ -28,7 +28,7 @@ jobs:
           node-version: ${{ matrix.node }}
       - name: Install locked packages
         run: |
-          test "$(git rev-parse HEAD)" = 'e21da874a745bd879875d8608266c1aae0f17e83'
+          test "$(git rev-parse HEAD)" = 'accf5cf20f87be21fa7744c53b748146ac24bb33'
           npm ci --no-audit --no-fund
           ./node_modules/.bin/prisma generate
       - name: Verify validator and image paths
