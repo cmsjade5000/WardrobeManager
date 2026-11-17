@@ -29,7 +29,7 @@ jobs:
           node-version: ${{ matrix.node }}
       - name: Measure current model on the same offline fixture
         run: |
-          npm ci --no-audit --no-fund
+          npm ci --no-audit --no-fund --onnxruntime-node-install-cuda=skip
           ./node_modules/.bin/prisma generate
           node -e "const m=require('./node_modules/@imgly/background-removal-node/dist/resources.json');console.log('Baseline model bytes',m['/models/small'].size)"
           python3 - <<'PY'
