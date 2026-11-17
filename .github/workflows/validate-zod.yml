@@ -1,17 +1,21 @@
-name: Wardrobe validation dependencies
+name: Verify wardrobe validation
 on:
   push:
     branches: ['validation/wardrobe-zod-lock-20261117']
 permissions:
   contents: read
 jobs:
-  lock:
+  verify:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['20', '22']
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: 1e62aa23394ec39cd2b742ab308c99009e1afc96
+          ref: e21da874a745bd879875d8608266c1aae0f17e83
           persist-credentials: false
           sparse-checkout-cone-mode: false
           sparse-checkout: |
@@ -21,17 +25,23 @@ jobs:
             !/.env*
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
-          node-version: '22'
-      - name: Resolve validator and resolver lock entries
+          node-version: ${{ matrix.node }}
+      - name: Install locked packages
         run: |
-          cp package-lock.json "$RUNNER_TEMP/before.json"
-          npm pkg delete dependencies.zod-validation-error
-          npm pkg set dependencies.zod=4.6.7 dependencies.@hookform/resolvers=5.2.2
-          npm install --package-lock-only --ignore-scripts --no-audit --no-fund
-          node --input-type=commonjs <<'NODE'
-          const orig = require(process.env.RUNNER_TEMP + '/before.json').packages;
-          const lock = require('./package-lock.json').packages;
-          for (const name of Object.keys({...orig,...lock})) {
-            if (name && JSON.stringify(orig[name]) !== JSON.stringify(lock[name])) console.log("LOCKENTRY", JSON.stringify([name,lock[name] || null]));
-          }
-          NODE
+          test "$(git rev-parse HEAD)" = 'e21da874a745bd879875d8608266c1aae0f17e83'
+          npm ci --no-audit --no-fund
+          ./node_modules/.bin/prisma generate
+      - name: Verify validator and image paths
+        run: npm test -- --reporter=verbose
+      - name: Type check
+        if: ${{ !cancelled() }}
+        run: npm run check
+      - name: Build
+        if: ${{ !cancelled() }}
+        run: npm run build
+      - name: Dependency summary
+        if: ${{ !cancelled() }}
+        run: |
+          npm audit --omit=dev --json > "$RUNNER_TEMP/audit.json" || true
+          node -e "const a=require(process.env.RUNNER_TEMP+'/audit.json'); if(!a.metadata?.vulnerabilities) process.exit(1); console.log('Counts',JSON.stringify(a.metadata.vulnerabilities));"
+          npm view @imgly/background-removal-node@1.4.5 gitHead
