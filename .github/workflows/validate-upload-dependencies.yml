@@ -15,6 +15,7 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
+          ref: 780c787f0436db588bea1ad723e33320f7e2a9a9
           persist-credentials: false
           sparse-checkout-cone-mode: false
           sparse-checkout: |
@@ -26,29 +27,32 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '20'
-      - name: Resolve and record the manifest changes
+      - name: Verify review revision and clean install
         run: |
-          node --version
-          npm --version
-          npm view @imgly/background-removal-node@latest version dependencies.sharp
-          npm install --package-lock-only --ignore-scripts --no-audit --no-fund --save-exact multer@2.5.0 adm-zip@0.6.1 sharp@0.35.5 ws@8.23.0 uuid@13.0.1
-          git diff --check -- package.json package-lock.json
-          git hash-object package.json package-lock.json
-          git diff --no-color --unified=3 -- package.json package-lock.json | base64 -w 512 | sed 's/^/MANIFEST_DIFF /'
-      - name: Clean install
-        run: npm ci --no-audit --no-fund
-      - name: Inspect resolved runtime packages
+          test "$(git rev-parse HEAD)" = "780c787f0436db588bea1ad723e33320f7e2a9a9"
+          npm ci --no-audit --no-fund
+          ./node_modules/.bin/prisma generate
+      - name: Run fixture suite
+        run: npm test -- --reporter=verbose
+      - name: Type check and build
+        run: |
+          npm run check
+          npm run build
+      - name: Assess installed production dependencies
         run: |
           npm ls --all multer adm-zip sharp ws uuid
-          node --input-type=module -e "import sharp from 'sharp'; console.log('Sharp', sharp.versions.sharp, 'libvips', sharp.versions.vips)"
-          ./node_modules/.bin/prisma generate
-      - name: Run API suite with synthetic data
-        env:
-          BG_REMOVAL_ENABLED: 'false'
-        run: npm test -- --reporter=verbose
-      - name: Type check
-        if: ${{ !cancelled() }}
-        run: npm run check
-      - name: Build
-        if: ${{ !cancelled() }}
-        run: npm run build
+          npm audit --omit=dev --json > "$RUNNER_TEMP/wardrobe-audit.json" || true
+          node -e "const a=require(process.env.RUNNER_TEMP+'/wardrobe-audit.json'); if(!a.metadata?.vulnerabilities) process.exit(1); console.log('Audit counts', JSON.stringify(a.metadata.vulnerabilities)); console.log('Audit packages', Object.keys(a.vulnerabilities||{}).sort().join(', '))"
+      - name: Exercise local background removal on synthetic item upload
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          source = Path("server/__tests__/api.test.ts").read_text()
+          settings = 'process.env.BG_REMOVAL_ENABLED = "false";'
+          check = 'expect(response.body.imageUrl).toMatch('
+          assert source.count(settings) == 1 and source.count(check) == 1
+          source = source.replace(settings, 'process.env.BG_REMOVAL_ENABLED = "true";')
+          source = source.replace(check, 'expect(response.body.imageUrl).toContain("-cutout-standard.png");\n      ' + check)
+          Path("server/__tests__/background-local.test.ts").write_text(source)
+          PY
+          ./node_modules/.bin/vitest run server/__tests__/background-local.test.ts -t 'stores a synthetic PNG from a multipart item upload' --testTimeout=180000 --reporter=verbose
