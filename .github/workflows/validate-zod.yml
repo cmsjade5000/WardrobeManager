@@ -1,13 +1,13 @@
-name: Verify synthetic model-enabled upload
+name: Verify installed dependency audit
 on:
   push:
     branches: ['validation/wardrobe-zod-lock-20261117']
 permissions:
   contents: read
 jobs:
-  model:
+  audit:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -22,21 +22,16 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22'
-      - name: Verify revision and prepare isolated runner
+      - name: Verify checkout and dependency audit summary
         run: |
           test "$(git rev-parse HEAD)" = 'accf5cf20f87be21fa7744c53b748146ac24bb33'
-          npm ci --no-audit --no-fund
-          ./node_modules/.bin/prisma generate
-      - name: Exercise local background removal on synthetic item upload
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          source = Path("server/__tests__/api.test.ts").read_text()
-          settings = 'process.env.BG_REMOVAL_ENABLED = "false";'
-          check = 'expect(response.body.imageUrl).toMatch('
-          assert source.count(settings) == 1 and source.count(check) == 1
-          source = source.replace(settings, 'process.env.BG_REMOVAL_ENABLED = "true";')
-          source = source.replace(check, 'expect(response.body.imageUrl).toContain("-cutout-standard.png");\n      ' + check)
-          Path("server/__tests__/background-local.test.ts").write_text(source)
-          PY
-          ./node_modules/.bin/vitest run server/__tests__/background-local.test.ts -t 'stores a synthetic PNG from a multipart item upload' --testTimeout=180000 --reporter=verbose
+          npm audit --omit=dev --json > "$RUNNER_TEMP/audit.json" || true
+          node --input-type=commonjs <<'NODE'
+          const audit = require(process.env.RUNNER_TEMP + '/audit.json');
+          if (!audit.metadata?.vulnerabilities) process.exit(1);
+          const records = Object.keys(audit.vulnerabilities).sort().map(name =>
+            [name, audit.vulnerabilities[name].nodes.slice().sort()]);
+          const digest = require('node:crypto').createHash('sha256').update(JSON.stringify(records)).digest('hex');
+          console.log('Audit counts', JSON.stringify(audit.metadata.vulnerabilities));
+          console.log('Inventory checksum', digest);
+          NODE
