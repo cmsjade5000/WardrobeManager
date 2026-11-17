@@ -1,0 +1,37 @@
+name: Wardrobe validation dependencies
+on:
+  push:
+    branches: ['validation/wardrobe-zod-lock-20261117']
+permissions:
+  contents: read
+jobs:
+  lock:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 1e62aa23394ec39cd2b742ab308c99009e1afc96
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /*
+            !/uploads/
+            !/prisma/dev.db
+            !/.env*
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Resolve validator and resolver lock entries
+        run: |
+          cp package-lock.json "$RUNNER_TEMP/before.json"
+          npm pkg delete dependencies.zod-validation-error
+          npm pkg set dependencies.zod=4.6.7 dependencies.@hookform/resolvers=5.2.2
+          npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+          node --input-type=commonjs <<'NODE'
+          const orig = require(process.env.RUNNER_TEMP + '/before.json').packages;
+          const lock = require('./package-lock.json').packages;
+          for (const name of Object.keys({...orig,...lock})) {
+            if (name && JSON.stringify(orig[name]) !== JSON.stringify(lock[name])) console.log("LOCKENTRY", JSON.stringify([name,lock[name] || null]));
+          }
+          NODE
