@@ -1,0 +1,17 @@
+name: Review supported model packages
+on:
+  push:
+    branches: ['validation/wardrobe-local-model-review']
+permissions:
+  contents: read
+jobs:
+  metadata:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Inspect published package metadata
+        run: |
+          npm view @imgly/background-removal-node versions dist-tags license --json
+          for pkg in @huggingface/transformers @imgly/background-removal onnxruntime-node; do
+            npm view "$pkg" version dist-tags engines license --json
+          done
