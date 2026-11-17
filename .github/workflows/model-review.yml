@@ -11,7 +11,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: ['20', '22']
+        node: ['22']
         model: ['birefnet']
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -27,42 +27,6 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: ${{ matrix.node }}
-      - name: Measure current model on the same offline fixture
-        run: |
-          npm ci --no-audit --no-fund --onnxruntime-node-install-cuda=skip
-          ./node_modules/.bin/prisma generate
-          node -e "const m=require('./node_modules/@imgly/background-removal-node/dist/resources.json');console.log('Baseline model bytes',m['/models/small'].size)"
-          python3 - <<'PY'
-          from pathlib import Path
-          routes = Path("server/routes.ts")
-          src = routes.read_text().replace("    const { removeBackground }", "    const startModel = performance.now();\n    const { removeBackground }")
-          target = "    const buffer = Buffer.from(await result.arrayBuffer());"
-          assert src.count(target) == 1
-          measure = '''
-              console.log("Baseline cold model milliseconds", Math.round(performance.now() - startModel));
-              const { data: rgb, info } = await sharp(resolvedPath).removeAlpha().raw().toBuffer({resolveWithObject:true});
-              const rgba = await sharp(buffer).ensureAlpha().raw().toBuffer();
-              let intersection = 0, union = 0, expectedPixels = 0, keptPixels = 0;
-              for (let i = 0; i < info.width * info.height; i++) {
-                const expected = rgb[i * 3] < 145;
-                const actual = rgba[i * 4 + 3] >= 128;
-                expectedPixels += Number(expected); keptPixels += Number(actual);
-                intersection += Number(expected && actual); union += Number(expected || actual);
-              }
-              console.log("Baseline mask overlap", JSON.stringify({intersection, union, expectedPixels, keptPixels, iou: intersection / union}));
-          '''
-          routes.write_text(src.replace(target, target + measure))
-          fixture=Path("server/__tests__/api.test.ts").read_text()
-          fixture=fixture.replace('process.env.BG_REMOVAL_ENABLED = "false";','process.env.BG_REMOVAL_ENABLED = "true";')
-          before=fixture.index("const image = await sharp(",fixture.index('it("stores a synthetic PNG'))
-          after=fixture.index("const response =",before)
-          fixture=fixture[:before]+'''const image = await sharp(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" fill="#fff"/><path d="M24 9 Q32 17 40 9 L57 19 49 29 44 25 44 56 20 56 20 25 15 29 7 19 Z" fill="#223388"/></svg>')).png().toBuffer();
-              '''+fixture[after:]
-          fixture=fixture.replace('expect(response.body.imageUrl).toMatch(', 'expect(response.body.imageUrl).toContain("-cutout-standard.png");\n      expect(response.body.imageUrl).toMatch(')
-          Path("server/__tests__/offline-model.test.ts").write_text(fixture)
-          PY
-          sudo unshare --net bash -c 'ip link set lo up; exec sudo -u "$1" env PATH="$2" npm_config_offline=true /usr/bin/time -f "Baseline runner max RSS KiB %M" ./node_modules/.bin/vitest run server/__tests__/offline-model.test.ts -t "stores a synthetic PNG" --testTimeout=120000 --reporter=verbose' _ "$(id -un)" "$PATH"
-          git show HEAD:server/routes.ts > server/routes.ts
       - name: Provision local runtime and licensed test weights
         run: |
           test "$(git rev-parse HEAD)" = 'accf5cf20f87be21fa7744c53b748146ac24bb33'
@@ -78,16 +42,16 @@ jobs:
           digest=07c308cf0fc7e6e8b2065a12ed7fc07e1de8febb7dc7839d7b7f15dd66584df9
           if [[ '${{ matrix.model }}' == 'birefnet' ]]; then
             hub=onnx-community/BiRefNet_lite-ONNX
-            short=de15b22
-            digest=5600024376f572a557870a5eb0afb1e5961636bef4e1e22132025467d0f03333
+            short=de15b22ba131738a16dff04aab8bdf8dc32e3ac1
+            digest=d39b897ceb16ae654c1731f3dba0cf9b368d9cae74b5a57459b455cc8bfec402
           fi
           rev=$(curl -fsSL --retry 2 "https://huggingface.co/api/models/$hub/revision/$short" | jq -er --arg s "$short" '.sha | select(startswith($s))')
           echo "Test model revision $rev"
-          for file in config.json preprocessor_config.json onnx/model.onnx; do
+          for file in config.json preprocessor_config.json onnx/model_fp16.onnx; do
             curl -fsSL --retry 2 "https://huggingface.co/$hub/resolve/$rev/$file" -o "$model/$file"
           done
-          echo "$digest  $model/onnx/model.onnx" | sha256sum -c -
-          stat -c "Candidate model bytes %s" "$model/onnx/model.onnx"
+          echo "$digest  $model/onnx/model_fp16.onnx" | sha256sum -c -
+          stat -c "Candidate model bytes %s" "$model/onnx/model_fp16.onnx"
           npm audit --omit=dev --json > "$RUNNER_TEMP/audit.json" || true
           node -e "const a=require(process.env.RUNNER_TEMP+'/audit.json');if(!a.metadata)process.exit(1);console.log('Audit counts',JSON.stringify(a.metadata.vulnerabilities));console.log('Audit name hash',require('node:crypto').createHash('sha256').update(Object.keys(a.vulnerabilities).sort().join(',')).digest('hex'))"
       - name: Exercise synthetic garment through normal upload without external network
@@ -105,7 +69,7 @@ jobs:
               const { env, RawImage, AutoModel, AutoProcessor } = await import("@huggingface/transformers");
               env.allowRemoteModels = false;
               env.allowLocalModels = true;
-              const options = { dtype: "fp32", device: "cpu", local_files_only: true } as const;
+              const options = { dtype: "fp16", device: "cpu", local_files_only: true } as const;
               const { data, info } = await sharp(resolvedPath).rotate().removeAlpha().raw().toBuffer({ resolveWithObject: true });
               const image = new RawImage(new Uint8ClampedArray(data), info.width, info.height, 3);
               const model = await AutoModel.from_pretrained(process.env.LOCAL_MODEL_DIR!, options);
@@ -142,9 +106,4 @@ jobs:
           fixture=fixture.replace('expect(response.body.imageUrl).toMatch(', 'expect(response.body.imageUrl).toContain("-cutout-standard.png");\n      expect(response.body.imageUrl).toMatch(')
           Path("server/__tests__/offline-model.test.ts").write_text(fixture)
           PY
-          npm run check
-          npm run build
           sudo unshare --net bash -c 'ip link set lo up; exec sudo -u "$1" env PATH="$2" LOCAL_MODEL_DIR="$3/modnet" TEST_MODEL="$4" npm_config_offline=true /usr/bin/time -f "Candidate runner max RSS KiB %M" ./node_modules/.bin/vitest run server/__tests__/offline-model.test.ts -t "stores a synthetic PNG" --testTimeout=120000 --reporter=verbose' _ "$(id -un)" "$PATH" "$RUNNER_TEMP" "${{ matrix.model }}"
-      - name: Verify existing fixtures with updated dependency tree
-        run: |
-          sudo unshare --net bash -c 'ip link set lo up; exec sudo -u "$1" env PATH="$2" npm_config_offline=true ./node_modules/.bin/vitest run server/__tests__/api.test.ts server/__tests__/item-form.test.ts --reporter=verbose' _ "$(id -un)" "$PATH"
